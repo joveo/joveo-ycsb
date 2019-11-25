@@ -1,14 +1,13 @@
 package com.joveox.ycsb.scylla
 
 import java.nio.ByteBuffer
-import java.nio.file.Paths
 import java.util
-import java.util.Properties
 
 import com.datastax.oss.driver.api.core.CqlSession
 import com.datastax.oss.driver.api.core.cql.{BoundStatement, PreparedStatement, SimpleStatement}
 import com.datastax.oss.driver.api.querybuilder.QueryBuilder
-import com.datastax.oss.driver.api.querybuilder.QueryBuilder.{bindMarker, insertInto, selectFrom}
+import com.datastax.oss.driver.api.querybuilder.QueryBuilder._
+import com.datastax.oss.driver.api.querybuilder.SchemaBuilder._
 import com.datastax.oss.driver.api.querybuilder.update.Assignment
 import com.joveox.ycsb.common._
 import com.yahoo.ycsb.ByteIterator
@@ -16,21 +15,20 @@ import com.yahoo.ycsb.ByteIterator
 import scala.collection.JavaConverters._
 
 
-object ScyllaPreparedStatementsManager {
+object ScyllaUtils {
 
-  private var instance: ScyllaPreparedStatementsManager = _
+  private var instance: ScyllaUtils = _
 
-  def get( p: Properties ): ScyllaPreparedStatementsManager = {
-    synchronized{
-      if( instance == null ){
-        val path = Paths.get( p.getProperty("scylla.use_cases") )
-        val operationsManager = new YCSBOperationManager( path )
-        val cql = ScyllaDBSession.build( ScyllaConf( p ) )
-        instance = new ScyllaPreparedStatementsManager( operationsManager, cql )
+  def init( operationManager: YCSBOperationManager, session: CqlSession ): ScyllaUtils = {
+    synchronized {
+      if (instance == null) {
+        instance = new ScyllaUtils( operationManager, session )
       }
     }
     instance
   }
+
+  def get: ScyllaUtils = instance
 
   def close(): Unit = {
     synchronized{
@@ -44,7 +42,7 @@ object ScyllaPreparedStatementsManager {
 }
 
 
-class ScyllaPreparedStatementsManager( operationManager: YCSBOperationManager, session: CqlSession ){
+class ScyllaUtils(operationManager: YCSBOperationManager, session: CqlSession ){
 
   def bindRead( keys: Set[String], prepared: PreparedStatement ): BoundStatement = {
     prepared.bind( keys.asJava )
@@ -78,7 +76,7 @@ class ScyllaPreparedStatementsManager( operationManager: YCSBOperationManager, s
     session.close()
   }
 
-  private def build(): Map[ YCSBOperation, PreparedStatement ] = {
+  private def build(): Map[ ( DBOperation, java.util.Set[String] ), PreparedStatement ] = {
     val operations = operationManager.all
     operations.map{ op =>
       val stmt = op.operation match {
@@ -86,7 +84,7 @@ class ScyllaPreparedStatementsManager( operationManager: YCSBOperationManager, s
         case DBOperation.READ => prepareRead( op.table, op.primaryKey, op.fields )
         case DBOperation.UPDATE => prepareUpdate( op.table, op.primaryKey, op.fields )
       }
-      op ->
+      ( op.operation, op.fields.toSet.asJava ) ->
         ScyllaDBSession.retry(3, 1000, 2000,() => session.prepare( stmt ) )
     }.toMap
   }
@@ -94,16 +92,7 @@ class ScyllaPreparedStatementsManager( operationManager: YCSBOperationManager, s
   private val preparedStatementsByOperation = build()
 
   def get( dbOperation: DBOperation, fields: java.util.Set[String] ): PreparedStatement = {
-    val operation = operationManager.get( dbOperation, fields ) match {
-      case Nil => throw new IllegalStateException(s"ScyllaPreparedStatementsManager: No prepared statement found for ($dbOperation,${fields.asScala.mkString(",")}) ")
-      case head :: Nil => head
-      case values => throw new IllegalStateException(
-        s"ScyllaPreparedStatementsManager: More than 1 prepared statement found. Values ${
-          values.map(_.toString()).mkString("\n")
-        }"
-      )
-    }
-    preparedStatementsByOperation( operation )
+    preparedStatementsByOperation( ( dbOperation, fields ) )
   }
 
   private def prepareRead( table: String, keyField: String, fields: List[String] ): SimpleStatement = {
@@ -133,6 +122,46 @@ class ScyllaPreparedStatementsManager( operationManager: YCSBOperationManager, s
       stmtBuilder = stmtBuilder.value( field, bindMarker( field ) )
     }
     stmtBuilder.build()
+  }
+
+  protected def tableDDL( field: Field ): String = {
+    val scyllaType = field.`type` match {
+      case FieldType.BOOLEAN => "boolean"
+      case FieldType.BYTE => "tinyint"
+      case FieldType.SHORT => "smallint"
+      case FieldType.INT => "int"
+      case FieldType.LONG => "bigint"
+      case FieldType.FLOAT => "float"
+      case FieldType.DOUBLE => "double"
+      case FieldType.TEXT => "text"
+      case FieldType.BLOB => "blob"
+      case FieldType.DATE => "date"
+      case FieldType.TIMESTAMP => "timestamp"
+    }
+    s" ${field.name} $scyllaType ${ if( field.isPrimaryKey) "PRIMARY KEY" else ""}"
+  }
+
+  protected def tableDDL( db: String, table: String ): String = {
+    val innerFields = operationManager.schema.fields.map{ field =>
+      tableDDL( field )
+    }.mkString(",\n")
+    s"""
+       |CREATE TABLE IF NOT EXISTS $db.$table (
+       |$innerFields
+       |) WITH compaction={'class':'LeveledCompactionStrategy'} AND compression = {'sstable_compression': 'LZ4Compressor'}
+      """.stripMargin
+  }
+
+  def setup( ): Unit = {
+    session.execute(
+      createKeyspace( operationManager.schema.db )
+        .ifNotExists()
+        .withSimpleStrategy( 2 )
+        .build()
+    ).wasApplied()
+
+    val createTable = tableDDL( operationManager.schema.db, operationManager.schema.name )
+    session.execute( createTable ).wasApplied()
   }
 
 }

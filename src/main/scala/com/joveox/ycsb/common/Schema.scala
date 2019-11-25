@@ -35,6 +35,7 @@ case class SeedData(
 
 
 case class Schema(
+                  db: String,
                    name: String,
                    seed: SeedData,
                    fields: List[ Field ]

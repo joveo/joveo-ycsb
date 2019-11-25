@@ -1,13 +1,16 @@
 package com.joveox.ycsb.common
 
-import java.nio.file.Path
+import java.nio.file.{Path, Paths}
+import java.util.Properties
 
+import com.joveox.ycsb.scylla.{ScyllaConf, ScyllaDBSession, ScyllaUtils}
 import com.yahoo.ycsb.{ByteIterator, DB, Status}
 import com.yahoo.ycsb.generator.DiscreteGenerator
 import enumeratum._
 import pureconfig.ConfigSource
 import pureconfig.generic.auto._
 
+import scala.collection.AbstractIterator
 import scala.collection.JavaConverters._
 
 sealed trait DBOperation extends EnumEntry
@@ -59,15 +62,19 @@ case class YCSBOperation( useCase: UseCase, schema: Schema ){
   }
 }
 
-class YCSBOperationManager( path: Path ){
+class YCSBOperationManager( path: Path, val isLoad: Boolean ){
 
   private val config = ConfigSource.file( path )
 
-  private val schema = config.at("schema").loadOrThrow[ Schema ]
+  val schema: Schema = config.at("schema").loadOrThrow[ Schema ]
   schema.init()
-  private val useCases = config.at("use_cases").loadOrThrow[ List[ UseCase] ]
+  private val transactional = config.at("use_cases").loadOrThrow[ List[ UseCase] ]
 
-  private val operations = useCases.map { useCase =>
+  private val insertOnly = config.at("load").loadOrThrow[ UseCase ]
+
+  private val useCases: List[UseCase] = if( isLoad ) List( insertOnly ) else transactional
+
+  val operations: List[YCSBOperation] = useCases.map { useCase =>
     val op = YCSBOperation(useCase, schema)
     op.init()
     op
@@ -75,10 +82,7 @@ class YCSBOperationManager( path: Path ){
   private val operationsByName = operations.groupBy( _.name ).map( kv => kv._1 -> kv._2.head )
   private val operationsByPayload = operations.groupBy( op => ( op.operation, op.fields )  )
     .map( kv => kv._1 -> kv._2 )
-  private val generator = new DiscreteGenerator()
-  all.foreach{ useCase =>
-    generator.addValue( useCase.load.toDouble, useCase.name )
-  }
+
 
   def all: List[ YCSBOperation ] = operations
   def getSafe( name: String ): Option[ YCSBOperation ] = operationsByName.get( name )
@@ -86,10 +90,36 @@ class YCSBOperationManager( path: Path ){
   def get( operation: DBOperation, fields: java.util.Set[String] ): List[ YCSBOperation ] = {
     operationsByPayload.getOrElse( ( operation, fields.asScala.toList.sorted ), List.empty )
   }
-  def next(): YCSBOperation = {
-    val useCase = generator.nextValue()
-    operationsByName( useCase )
+
+  def iterator( threadId: Int, totalThreads: Int ): Iterator[ YCSBOperation ] = {
+    new AbstractIterator[YCSBOperation] {
+      private val generator = new DiscreteGenerator()
+      all.foreach{ useCase =>
+        generator.addValue( useCase.load.toDouble, useCase.name )
+      }
+      override def hasNext: Boolean = true
+
+      override def next(): YCSBOperation = operationsByName( generator.nextValue() )
+    }
   }
 
 }
 
+
+object YCSBOperationManager {
+
+  private var instance: YCSBOperationManager = _
+
+  def init( p: Properties, isLoad: Boolean ): YCSBOperationManager = {
+    synchronized{
+      if( instance == null ){
+        val path = Paths.get( p.getProperty("joveo.use_cases") )
+        instance = new YCSBOperationManager( path, isLoad )
+      }
+    }
+    instance
+  }
+
+  def get: YCSBOperationManager = instance
+
+}
