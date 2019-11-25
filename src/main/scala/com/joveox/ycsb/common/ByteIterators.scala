@@ -5,7 +5,7 @@ import java.util.Date
 
 import com.yahoo.ycsb.ByteIterator
 
-trait JvByteIterator extends ByteIterator{
+sealed trait JvByteIterator extends ByteIterator{
   override def hasNext: Boolean = ???
 
   override def nextByte(): Byte = ???

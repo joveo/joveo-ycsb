@@ -103,8 +103,9 @@ class RecordGenerator( schema: Schema ){
     generators = buildGenerators()
   }
 
-  def nextKey(): String = {
-    generators ( primaryKey ).next( FieldType.TEXT ).asInstanceOf[ JVText ].underlying
+  def nextKey(  threadId: Int, idx: Int ): String = {
+    val content = generators ( primaryKey ).next( FieldType.TEXT ).asInstanceOf[ JVText ].underlying
+    s"$threadId--$idx--content"
   }
 
   def nextFields( fieldNames: String * ): util.Map[String, ByteIterator] = {

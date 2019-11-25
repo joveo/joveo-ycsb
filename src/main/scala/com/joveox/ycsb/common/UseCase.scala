@@ -3,10 +3,10 @@ package com.joveox.ycsb.common
 import java.nio.file.{Path, Paths}
 import java.util.Properties
 
-import com.joveox.ycsb.scylla.{ScyllaConf, ScyllaDBSession, ScyllaUtils}
 import com.yahoo.ycsb.{ByteIterator, DB, Status}
 import com.yahoo.ycsb.generator.DiscreteGenerator
 import enumeratum._
+import org.apache.logging.log4j.scala.Logging
 import pureconfig.ConfigSource
 import pureconfig.generic.auto._
 
@@ -44,8 +44,8 @@ case class YCSBOperation( useCase: UseCase, schema: Schema ){
     recordGenerator.init()
   }
 
-  def runNext( db: DB ): Status = {
-    val key = recordGenerator.nextKey()
+  def runNext( db: DB, threadId: Int, idx: Int ): Status = {
+    val key = recordGenerator.nextKey( threadId, idx )
     useCase.operation match {
       case DBOperation.CREATE =>
         val values = recordGenerator.nextFields( useCase.fields:_* )
@@ -60,9 +60,13 @@ case class YCSBOperation( useCase: UseCase, schema: Schema ){
         db.delete( schema.name, key )
     }
   }
+
+  override def toString: String = {
+    s"name=$name, table=$table, primaryKey=$primaryKey, operation=${operation.toString}, load=$load, fields=${fields.mkString("__")}"
+  }
 }
 
-class YCSBOperationManager( path: Path, val isLoad: Boolean ){
+class YCSBOperationManager( path: Path, val isLoad: Boolean ) extends Logging {
 
   private val config = ConfigSource.file( path )
 
@@ -79,6 +83,8 @@ class YCSBOperationManager( path: Path, val isLoad: Boolean ){
     op.init()
     op
   }
+
+  logger.info(s" Initialized all following operation:\n${operations.mkString("\n")}")
   private val operationsByName = operations.groupBy( _.name ).map( kv => kv._1 -> kv._2.head )
   private val operationsByPayload = operations.groupBy( op => ( op.operation, op.fields )  )
     .map( kv => kv._1 -> kv._2 )
@@ -91,20 +97,11 @@ class YCSBOperationManager( path: Path, val isLoad: Boolean ){
     operationsByPayload.getOrElse( ( operation, fields.asScala.toList.sorted ), List.empty )
   }
 
-  def iterator( threadId: Int, totalThreads: Int ): Iterator[ YCSBOperation ] = {
-    new AbstractIterator[YCSBOperation] {
-      private val generator = new DiscreteGenerator()
-      all.foreach{ useCase =>
-        generator.addValue( useCase.load.toDouble, useCase.name )
-      }
-      override def hasNext: Boolean = true
-
-      override def next(): YCSBOperation = operationsByName( generator.nextValue() )
-    }
+  def iterator( threadId: Int, totalThreads: Int ): OperationIterator = {
+    new OperationIterator( threadId, threadId, operationsByName )
   }
 
 }
-
 
 object YCSBOperationManager {
 
@@ -122,4 +119,22 @@ object YCSBOperationManager {
 
   def get: YCSBOperationManager = instance
 
+}
+
+class OperationIterator( val threadId: Int, val totalThreads: Int, operations: Map[ String, YCSBOperation ] ) extends AbstractIterator[ YCSBOperation ]{
+  private val generator = new DiscreteGenerator()
+  operations.valuesIterator.foreach{ useCase =>
+    generator.addValue( useCase.load.toDouble, useCase.name )
+  }
+
+  private var currentIdx = -1
+
+  def idx: Int = currentIdx
+
+  override def hasNext: Boolean = true
+
+  override def next(): YCSBOperation = {
+    currentIdx = currentIdx + 1
+    operations( generator.nextValue() )
+  }
 }

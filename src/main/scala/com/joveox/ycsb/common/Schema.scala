@@ -3,6 +3,7 @@ package com.joveox.ycsb.common
 import java.nio.file.Path
 
 import enumeratum._
+import org.apache.logging.log4j.scala.Logging
 
 import scala.io.Source
 
@@ -39,7 +40,7 @@ case class Schema(
                    name: String,
                    seed: SeedData,
                    fields: List[ Field ]
-                 ){
+                 ) extends Logging {
 
   private val delimiter = "\n##_##\n"
 
@@ -55,9 +56,11 @@ case class Schema(
   }
 
   protected def loadAll(): Map[String, Array[String]] = {
+    logger.info("Loading seed data.")
     seed.loaders.map{ loader =>
       val path = seed.dir.resolve( loader.path )
       val data = load( path )
+      logger.info(s"     Loaded seed data ${loader.name},  from $path")
       loader.name -> data
     }.toMap
   }
