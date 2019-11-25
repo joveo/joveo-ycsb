@@ -1,2 +1,9 @@
 *.class
 *.log
+.idea/
+project/target/
+project/target/*
+target/
+*.DS_Store
+null/
+null/*

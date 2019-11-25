@@ -1,0 +1,33 @@
+workload=com.joveox.ycsb.jobs.JobsScyllaWorkload
+IS_DEBUG=false
+db=com.joveox.ycsb.jobs.ScyllaDBBatch
+db.mock_path=/tmp/scylla_mock/
+insertcount=20000
+operationcount=50000
+
+
+insert_retries=3
+load_parallelism=16
+data_dir=/home/rchaki/data/s3/jobs-published/raw/csv/day=2018-09-02
+scylla.keyspace=joveo
+scylla.table=jobs
+#scylla.hosts=34.196.4.34:9042,3.234.186.59:9042,52.72.67.37:9042
+#scylla.username=scylla
+#scylla.password=4F9wJMH5ztqSyOb
+#scylla.data_center=AWS_US_EAST_1
+scylla.request_timeout=5
+scylla.batch.reads=50
+scylla.batch.inserts=10
+scylla.batch.updates=10
+
+threadcount=2
+status.interval=5
+dotransactions=true
+status=true
+
+load.insert = 10
+load.read.url = 10
+load.read.settings = 40
+load.read.content = 20
+load.update.settings = 10
+load.update.content = 10
