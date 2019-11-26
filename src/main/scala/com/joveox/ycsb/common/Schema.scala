@@ -25,28 +25,27 @@ object FieldType extends Enum[FieldType] {
   case object TIMESTAMP extends FieldType
 }
 
-case class Field(name: String, `type`: FieldType, generator: FieldGeneratorType, isPrimaryKey: Boolean = false )
+case class Field(name: String, `type`: FieldType, generator: FieldGeneratorType )
 
 case class FieldLoader( name: String, path: Path )
 case class SeedData(
                      dir: Path,
-                     loaders: List[ FieldLoader ]
+                     loaders: List[ FieldLoader ] = List.empty
                    )
 
 
 
 case class Schema(
-                  db: String,
+                   db: String,
                    name: String,
                    seed: SeedData,
-                   fields: List[ Field ]
+                   primaryKey: Field,
+                   fields: List[ Field ] = List.empty
                  ) extends Logging {
 
   private val delimiter = "\n##_##\n"
 
-  private var seedsByField = Map.empty[ String, Array[ String ] ]
-
-  val primaryKey: Field = fields.filter(_.isPrimaryKey).head
+  private val seedsByField = loadAll()
 
   protected def load( path: Path ): Array[String] = {
     val source = Source.fromFile( path.toFile )
@@ -57,21 +56,19 @@ case class Schema(
 
   protected def loadAll(): Map[String, Array[String]] = {
     logger.info("Loading seed data.")
-    seed.loaders.map{ loader =>
+    seed.loaders.par.map{ loader =>
       val path = seed.dir.resolve( loader.path )
       val data = load( path )
-      logger.info(s"     Loaded seed data ${loader.name},  from $path")
+      logger.info(s"     Loaded seed data ${loader.name} found ${data.length} entries,  from $path")
       loader.name -> data
-    }.toMap
-  }
-
-  def init(): Unit = {
-    seedsByField = loadAll()
+    }.toMap.seq
   }
 
   def getSeedData( field: String ): Array[ String ] = {
     seedsByField.getOrElse( field, Array.empty )
   }
+
+  def allFields: List[ Field ] = primaryKey :: fields
 
 }
 

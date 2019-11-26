@@ -24,11 +24,11 @@ abstract class JoveoDBBatch extends DB {
 
   override def init(): Unit = {
     super.init()
-    val properties = getProperties
-    readBatchSize = properties.getProperty( "db.batch.reads", readBatchSize.toString ).toInt
-    insertsBatchSize = properties.getProperty( "db.batch.inserts", insertsBatchSize.toString ).toInt
-    updateBatchSize = properties.getProperty( "db.batch.updates", updateBatchSize.toString ).toInt
-    operationManager = YCSBOperationManager.get
+    val conf = ConfigManager.get.dbCommon
+    readBatchSize = conf.batch.reads
+    insertsBatchSize = conf.batch.inserts
+    updateBatchSize = conf.batch.updates
+    operationManager = ConfigManager.get.operationManager
   }
 
   protected def getKey( op: DBOperation, id: String, operation: YCSBOperation ): BatchKey
@@ -55,10 +55,10 @@ abstract class JoveoDBBatch extends DB {
 
   protected def getOperation( op: DBOperation, fields: util.Set[ String ] ): YCSBOperation = {
     operationManager.get( op, fields ) match {
-      case Nil => throw new IllegalStateException(s"JoveoDBBatch: No prepared statement found for ($op,${fields.asScala.mkString(",")}) ")
+      case Nil => throw new IllegalStateException(s"JoveoDBBatch: No operation found for ($op,${fields.asScala.mkString(",")}) ")
       case head :: Nil => head
       case values => throw new IllegalStateException(
-        s"JoveoDBBatch: More than 1 prepared statement found. Values ${
+        s"JoveoDBBatch: More than 1 operation found. Values ${
           values.map(_.toString()).mkString("\n")
         }"
       )

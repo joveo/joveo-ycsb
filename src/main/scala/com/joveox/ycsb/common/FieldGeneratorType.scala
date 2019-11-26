@@ -1,7 +1,9 @@
 package com.joveox.ycsb.common
 
+import java.io.{ByteArrayInputStream, ByteArrayOutputStream}
 import java.time.Instant
 import java.util
+import java.util.zip.{GZIPInputStream, GZIPOutputStream}
 import java.util.{Base64, Date}
 
 import com.yahoo.ycsb.ByteIterator
@@ -9,6 +11,7 @@ import enumeratum._
 
 import scala.util.Random
 import scala.collection.JavaConverters._
+import scala.io.Source
 
 sealed trait FieldGeneratorType extends EnumEntry
 object FieldGeneratorType extends Enum[FieldGeneratorType] {
@@ -29,6 +32,8 @@ trait FieldGenerator {
 
 abstract class SeedFieldGenerator( data: Array[ String ] ) extends FieldGenerator {
 
+  assert( ! data.isEmpty, " Seed data cannot be empty ")
+
   def nextIdx(): Int
 
   override def next(`type`: FieldType): ByteIterator = {
@@ -37,6 +42,8 @@ abstract class SeedFieldGenerator( data: Array[ String ] ) extends FieldGenerato
       case FieldType.TEXT => JVText( data( idx ) )
       case FieldType.BLOB =>
         val content = Base64.getDecoder.decode( data( idx ) )
+//        val in = new GZIPInputStream( new ByteArrayInputStream( content ) )
+//        val text = Source.fromInputStream( in ).mkString
         JVBlob( content )
       case _ => throw new IllegalArgumentException( " Only TEXT and BLOB types are supported for SeedGenerator")
     }
@@ -84,11 +91,11 @@ case class RandomSeedFieldGenerator( data: Array[ String ] ) extends SeedFieldGe
 class RecordGenerator( schema: Schema ){
 
   private val primaryKey = schema.primaryKey
-  private val fieldsByName = schema.fields.groupBy( _.name ).map( kv => kv._1 -> kv._2.head )
-  private var generators = Map.empty[Field, FieldGenerator]
+  private val fieldsByName = schema.allFields.groupBy( _.name ).map( kv => kv._1 -> kv._2.head )
+  private var generators = buildGenerators()
 
   private def buildGenerators(): Map[Field, FieldGenerator] = {
-    val generators: Map[Field, FieldGenerator] = schema.fields.map{ field =>
+    val generators: Map[Field, FieldGenerator] = fieldsByName.valuesIterator.map{ field =>
       val generator = field.generator match {
         case FieldGeneratorType.RANDOM => RandomFieldGenerator()
         case FieldGeneratorType.SEED_RANDOM => RandomSeedFieldGenerator( schema.getSeedData( field.name ) )
@@ -99,13 +106,9 @@ class RecordGenerator( schema: Schema ){
     generators
   }
 
-  def init(): Unit = {
-    generators = buildGenerators()
-  }
-
   def nextKey(  threadId: Int, idx: Int ): String = {
     val content = generators ( primaryKey ).next( FieldType.TEXT ).asInstanceOf[ JVText ].underlying
-    s"$threadId--$idx--content"
+    s"$threadId--$idx--$content"
   }
 
   def nextFields( fieldNames: String * ): util.Map[String, ByteIterator] = {

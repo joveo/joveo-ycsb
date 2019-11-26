@@ -7,7 +7,7 @@ import java.util.UUID
 import com.datastax.oss.driver.api.core.CqlSession
 import com.datastax.oss.driver.api.core.`type`.codec.TypeCodecs
 import com.datastax.oss.driver.api.core.cql.{BatchStatement, DefaultBatchType, PreparedStatement, ResultSet}
-import com.joveox.ycsb.common.{DBOperation, JVBlob, JoveoDBBatch, YCSBOperation}
+import com.joveox.ycsb.common.{ConfigManager, DBOperation, JVBlob, JoveoDBBatch, YCSBOperation}
 import com.yahoo.ycsb.{ByteIterator, Status}
 import org.apache.logging.log4j.scala.Logging
 
@@ -20,15 +20,15 @@ class ScyllaDB extends JoveoDBBatch with Logging {
   type Hosts = Set[ UUID ]
   override type BatchKey = ( PreparedStatement, Hosts )
 
-  protected var conf: ScyllaConf = _
+  protected var keyspace: String = _
   protected var session: CqlSession = _
   protected var preparedStatementManager: ScyllaUtils = _
 
 
   override def init(): Unit = {
     super.init()
-    conf = ScyllaConf( getProperties )
-    session = ScyllaDBSession.build( conf )
+    keyspace = ConfigManager.get.schema.db
+    session = ScyllaDBSession.build( )
     preparedStatementManager = ScyllaUtils.get
   }
 
@@ -42,7 +42,7 @@ class ScyllaDB extends JoveoDBBatch with Logging {
     if( ! tokenMap.isPresent )
       Set.empty[ UUID ]
     else
-      tokenMap.get().getReplicas( conf.keyspace, routingKey).asScala.map(_.getHostId).toSet
+      tokenMap.get().getReplicas( keyspace, routingKey).asScala.map(_.getHostId).toSet
   }
 
   protected def persist( fn: () => ResultSet ): Status = {

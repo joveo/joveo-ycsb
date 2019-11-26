@@ -1,7 +1,7 @@
 package com.joveox.ycsb.common
 
 import java.io.{BufferedWriter, FileWriter, Writer}
-import java.nio.file.{Files, Paths}
+import java.nio.file.Files
 
 import com.yahoo.ycsb.{ByteIterator, Status}
 import org.apache.logging.log4j.scala.Logging
@@ -28,15 +28,16 @@ class MockDB extends JoveoDBBatch with  Logging {
 
   override def init(): Unit = {
     super.init()
-    val p = getProperties
-    val root = Paths.get(  p.getProperty("db.mock_path", "/tmp/scylla_mock/") )
+    val conf = ConfigManager.get.mockDBCommon
+    val root = conf.output
     if( ! root.toFile.exists() )
       Files.createDirectories( root )
-    val dbPath = root.resolve( id+ ".txt"  )
+    val dbPath = root.resolve( id + ".txt"  )
     db = new BufferedWriter(new FileWriter( dbPath.toFile))
   }
 
   private def serialize( result: util.Map[String, ByteIterator] ): String = {
+    def sanitize( s: String ) = if( s.length < 20) s else ( s.take( 20 ) + "... ")
     result.asScala.map {
       case ( key, value ) =>
         val valueStr = value.asInstanceOf[JvByteIterator] match {
@@ -47,8 +48,8 @@ class MockDB extends JoveoDBBatch with  Logging {
           case JVLong(underlying) => underlying.toString
           case JVFloat(underlying) => underlying.toString
           case JVDouble(underlying) => underlying.toString
-          case JVText(underlying) => underlying
-          case JVBlob(underlying) => s" [base-64 size=${underlying.length}] content="+Base64.getEncoder.encodeToString( underlying )
+          case JVText(underlying) => sanitize( underlying )
+          case JVBlob(underlying) => s" [base-64 size=${underlying.length}] content="+ sanitize( Base64.getEncoder.encodeToString( underlying ) )
           case JVDate(underlying) => underlying.toString
           case JVTimestamp(underlying) => underlying.toString
           case _ => "UNKNOWN"
@@ -75,6 +76,6 @@ class MockDB extends JoveoDBBatch with  Logging {
     val keys = entities.map(_._1).mkString("::")
     val fields = op.fields.mkString("::")
     val elems = entities.map(_._2).map( serialize ).mkString("\n")
-    log( s"op=READ, keys=$keys, fields=$fields,elems=\n$elems\n")
+    log( s"op=${op.operation}, keys=$keys, fields=$fields,elems=\n$elems\n")
   }
 }

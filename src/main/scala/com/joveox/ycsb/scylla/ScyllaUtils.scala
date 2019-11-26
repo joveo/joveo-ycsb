@@ -19,10 +19,10 @@ object ScyllaUtils {
 
   private var instance: ScyllaUtils = _
 
-  def init( operationManager: YCSBOperationManager, session: CqlSession ): ScyllaUtils = {
+  def init( schema: Schema, operationManager: YCSBOperationManager, session: CqlSession ): ScyllaUtils = {
     synchronized {
       if (instance == null) {
-        instance = new ScyllaUtils( operationManager, session )
+        instance = new ScyllaUtils( schema, operationManager, session )
       }
     }
     instance
@@ -42,7 +42,7 @@ object ScyllaUtils {
 }
 
 
-class ScyllaUtils(operationManager: YCSBOperationManager, session: CqlSession ){
+class ScyllaUtils( schema: Schema, operationManager: YCSBOperationManager, session: CqlSession ){
 
   def bindRead( keys: Set[String], prepared: PreparedStatement ): BoundStatement = {
     prepared.bind( keys.asJava )
@@ -124,7 +124,7 @@ class ScyllaUtils(operationManager: YCSBOperationManager, session: CqlSession ){
     stmtBuilder.build()
   }
 
-  protected def tableDDL( field: Field ): String = {
+  protected def tableDDL( field: Field, isPrimaryKey: Boolean = false ): String = {
     val scyllaType = field.`type` match {
       case FieldType.BOOLEAN => "boolean"
       case FieldType.BYTE => "tinyint"
@@ -138,29 +138,31 @@ class ScyllaUtils(operationManager: YCSBOperationManager, session: CqlSession ){
       case FieldType.DATE => "date"
       case FieldType.TIMESTAMP => "timestamp"
     }
-    s" ${field.name} $scyllaType ${ if( field.isPrimaryKey) "PRIMARY KEY" else ""}"
+    s" ${field.name} $scyllaType ${ if( isPrimaryKey) "PRIMARY KEY" else ""}"
   }
 
   protected def tableDDL( db: String, table: String ): String = {
-    val innerFields = operationManager.schema.fields.map{ field =>
+    val key = tableDDL( schema.primaryKey, true )
+    val innerFields = schema.fields.map{ field =>
       tableDDL( field )
-    }.mkString(",\n")
+    }
+
     s"""
        |CREATE TABLE IF NOT EXISTS $db.$table (
-       |$innerFields
+       |${( key :: innerFields ).mkString(",\n")}
        |) WITH compaction={'class':'LeveledCompactionStrategy'} AND compression = {'sstable_compression': 'LZ4Compressor'}
       """.stripMargin
   }
 
   def setup( ): Unit = {
     session.execute(
-      createKeyspace( operationManager.schema.db )
+      createKeyspace( schema.db )
         .ifNotExists()
         .withSimpleStrategy( 2 )
         .build()
     ).wasApplied()
 
-    val createTable = tableDDL( operationManager.schema.db, operationManager.schema.name )
+    val createTable = tableDDL( schema.db, schema.name )
     session.execute( createTable ).wasApplied()
   }
 

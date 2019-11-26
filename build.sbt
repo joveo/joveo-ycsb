@@ -15,9 +15,6 @@ mainClass in Compile := Some("com.joveox.ycsb.jobs.Main")
 resolvers += ("ImageJ Public Repository" at "http://maven.imagej.net/content/repositories/public/")
   .withAllowInsecureProtocol(true)
 
-resolvers += Resolver.sonatypeRepo("releases")
-addCompilerPlugin("org.scalamacros" % "paradise" % "2.1.0" cross CrossVersion.full)
-
 val commonJVMOptions = Seq(
   "-J-XX:+UseParallelOldGC",
   "-J-XX:+UseParallelGC",
@@ -27,6 +24,7 @@ val commonJVMOptions = Seq(
 )
 
 scalacOptions in ThisBuild ++= Seq(
+  "-J-Xss8M",
   "-deprecation",
   "-encoding", "UTF-8",
   "-language:experimental.macros",
