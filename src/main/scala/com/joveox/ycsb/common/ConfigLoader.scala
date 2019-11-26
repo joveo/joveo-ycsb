@@ -5,7 +5,6 @@ import java.nio.file.{Path, Paths}
 import com.typesafe.config.Config
 import pureconfig.{ConfigReader, ConfigSource, Derivation}
 import pureconfig.generic.auto._
-import pureconfig.module.enumeratum._
 
 import scala.reflect.ClassTag
 import scala.util.Try
@@ -31,11 +30,11 @@ class ConfigManager( config: Config, isLoadPhase: Boolean ) {
     dbSource.at( name ).loadOrThrow[T]
   }
 
+  val seed: SeedData = source.at("seed").loadOrThrow[ SeedData ]
   val schema: Schema = source.at("schema").loadOrThrow[ Schema ]
   val load: UseCase = source.at("load").loadOrThrow[ UseCase ]
   val transactions: List[ UseCase ] = source.at("transactions").load[ List[ UseCase ] ].getOrElse( List.empty )
-
-  val operationManager = new YCSBOperationManager( schema, if( isLoadPhase ) List( load ) else transactions )
+  val useCaseManager = UseCaseManager( schema, seed, if( isLoadPhase ) List( load ) else transactions )
 
 }
 

@@ -7,7 +7,7 @@ import java.util.UUID
 import com.datastax.oss.driver.api.core.CqlSession
 import com.datastax.oss.driver.api.core.`type`.codec.TypeCodecs
 import com.datastax.oss.driver.api.core.cql.{BatchStatement, DefaultBatchType, PreparedStatement, ResultSet}
-import com.joveox.ycsb.common.{ConfigManager, DBOperation, JVBlob, JoveoDBBatch, YCSBOperation}
+import com.joveox.ycsb.common.{ConfigManager, DBOperation, JVBlob, JoveoDBBatch, UseCase}
 import com.yahoo.ycsb.{ByteIterator, Status}
 import org.apache.logging.log4j.scala.Logging
 
@@ -28,7 +28,7 @@ class ScyllaDB extends JoveoDBBatch with Logging {
   override def init(): Unit = {
     super.init()
     keyspace = ConfigManager.get.schema.db
-    session = ScyllaDBSession.build( )
+    session = ScyllaDBSession.build( true )
     preparedStatementManager = ScyllaUtils.get
   }
 
@@ -58,6 +58,7 @@ class ScyllaDB extends JoveoDBBatch with Logging {
   }
 
   protected def readTo(
+                        expected: Int,
                         values: util.Map[ String, ByteIterator ],
                         fn: () => ResultSet
                       ): Status = {
@@ -65,7 +66,10 @@ class ScyllaDB extends JoveoDBBatch with Logging {
       fn()
     } match {
       case Success( rs ) =>
-        rs.all().asScala.zipWithIndex.foreach{
+        val rows = rs.all().asScala
+        if( rows.size < expected )
+          logger.warn(s" Scylla expected $expected number of elems is less than returned ${rows.size} ")
+        rows.zipWithIndex.foreach{
           case ( row, i) =>
             val columns = row.getColumnDefinitions
             columns.asScala.foreach{ col =>
@@ -83,34 +87,48 @@ class ScyllaDB extends JoveoDBBatch with Logging {
     }
   }
 
-  override protected def getKey(op: DBOperation, id: String, operation: YCSBOperation): (PreparedStatement, Hosts) = {
-    val prepared = preparedStatementManager.get( op, operation.fields.toSet.asJava )
+  override protected def getKey(op: DBOperation.Value, id: String, useCase: UseCase ): (PreparedStatement, Hosts) = {
+    val prepared = preparedStatementManager.get( op, useCase.involvedFields.asJava )
     val nodes = hosts( id )
     prepared -> nodes
   }
 
-  override protected def bulkRead(op: YCSBOperation)(ids: List[String]): Status = {
-    val prepared = preparedStatementManager.get( op.operation, op.fields.toSet.asJava )
-    val result = new util.HashMap[String, ByteIterator ]()
-    val stmt = preparedStatementManager.bindRead( ids.toSet, prepared )
-    readTo( result, () => session.execute( stmt ) )
+  override protected def bulkRead(op: UseCase)(ids: List[String]): Status = {
+    Try {
+      val prepared = preparedStatementManager.get(op.dbOperation, op.involvedFields.asJava )
+      val result = new util.HashMap[String, ByteIterator]()
+      val stmt = preparedStatementManager.bindRead(ids.distinct, prepared)
+      readTo( ids.size, result, () => session.execute(stmt))
+    } match {
+      case Failure( ex ) =>
+        logger.error(s" Error in bulk read for ${op.toString} for $ids", ex)
+        Status.ERROR
+      case Success( status ) => status
+    }
   }
 
-  override protected def bulkWrite(op: YCSBOperation)(entities: List[(String, util.Map[String, ByteIterator])]): Status = {
-    val prepared = preparedStatementManager.get( op.operation, op.fields.toSet.asJava )
-    entities match {
-      case Nil => Status.ERROR
-      case head :: Nil =>
-        val stmt = preparedStatementManager.bindWrite( head._1, head._2, prepared )
-        persist( () => session.execute( stmt ) )
-      case _ =>
-        val stmt = BatchStatement.newInstance( DefaultBatchType.UNLOGGED )
-          .addAll(
-            entities.map{ entity =>
-              preparedStatementManager.bindWrite( entity._1, entity._2, prepared )
-            }.asJava
-          )
-        persist( () => session.execute(stmt) )
+  override protected def bulkWrite(op: UseCase)(entities: List[(String, util.Map[String, ByteIterator])]): Status = {
+    Try {
+      val prepared = preparedStatementManager.get( op.dbOperation, op.involvedFields.asJava )
+      entities match {
+        case Nil => Status.ERROR
+        case head :: Nil =>
+          val stmt = preparedStatementManager.bindWrite( head._1, head._2, prepared )
+          persist( () => session.execute( stmt ) )
+        case _ =>
+          val stmt = BatchStatement.newInstance( DefaultBatchType.UNLOGGED )
+            .addAll(
+              entities.map{ entity =>
+                preparedStatementManager.bindWrite( entity._1, entity._2, prepared )
+              }.asJava
+            )
+          persist( () => session.execute(stmt) )
+      }
+    } match {
+      case Failure( ex ) =>
+        logger.error(s" Error in bulk write for ${op.toString} for $entities", ex)
+        Status.ERROR
+      case Success( status ) => status
     }
   }
 }

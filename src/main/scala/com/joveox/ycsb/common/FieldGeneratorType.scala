@@ -1,127 +1,97 @@
 package com.joveox.ycsb.common
 
-import java.io.{ByteArrayInputStream, ByteArrayOutputStream}
 import java.time.Instant
-import java.util
-import java.util.zip.{GZIPInputStream, GZIPOutputStream}
 import java.util.{Base64, Date}
 
-import com.yahoo.ycsb.ByteIterator
-import enumeratum._
-
 import scala.util.Random
-import scala.collection.JavaConverters._
-import scala.io.Source
 
-sealed trait FieldGeneratorType extends EnumEntry
-object FieldGeneratorType extends Enum[FieldGeneratorType] {
-
-  val values = findValues
-
-  case object RANDOM extends FieldGeneratorType
-
-  case object SEED_RANDOM extends FieldGeneratorType
-
-  case object SEED_SEQ extends FieldGeneratorType
-
+sealed trait FieldGenerator[ T ] {
+  val dataType: DataType[T]
+  def init( seed: SeedData ): Unit
+  def next( threadId: Int, count: Int ): T
+  def nextByteIterator( threadId: Int, count: Int ): JvByteIterator[ T ] = dataType.asByteIterator( next( threadId, count ) )
 }
 
-trait FieldGenerator {
-  def next( `type`: FieldType ): ByteIterator
+sealed trait RandomFieldGenerator[ T ] extends FieldGenerator[ T ]{
+  def init( seed: SeedData ): Unit = ()
 }
 
-abstract class SeedFieldGenerator( data: Array[ String ] ) extends FieldGenerator {
+case object BooleanGenerator extends RandomFieldGenerator[ Boolean ] {
+  val dataType = BOOLEAN
+  override def next(threadId: Int, count: Int): Boolean = Random.nextBoolean()
+}
+case object ByteGenerator extends RandomFieldGenerator[ Byte ] {
+  val dataType = BYTE
+  override def next(threadId: Int, count: Int): Byte = Random.nextInt( Byte.MaxValue ).toByte
+}
+case object ShortGenerator extends RandomFieldGenerator[ Short ] {
+  val dataType = SHORT
+  override def next(threadId: Int, count: Int): Short = Random.nextInt( Short.MaxValue ).toShort
+}
+case object IntGenerator extends RandomFieldGenerator[ Int ] {
+  val dataType = INT
+  override def next(threadId: Int, count: Int): Int = Random.nextInt()
+}
+case object LongGenerator extends RandomFieldGenerator[ Long ] {
+  val dataType = LONG
+  override def next(threadId: Int, count: Int): Long = Random.nextLong()
+}
+case object FloatGenerator extends RandomFieldGenerator[ Float ] {
+  val dataType = FLOAT
+  override def next(threadId: Int, count: Int): Float = Random.nextFloat()
+}
+case object DoubleGenerator extends RandomFieldGenerator[ Double ] {
+  val dataType = DOUBLE
+  override def next(threadId: Int, count: Int): Double = Random.nextDouble()
+}
+case object TextGenerator extends RandomFieldGenerator[ String ] {
+  val dataType = TEXT
+  override def next(threadId: Int, count: Int): String = Random.alphanumeric.take( 100 ).mkString("")
+}
+case object BlobGenerator extends RandomFieldGenerator[ Array[ Byte ] ] {
+  val dataType = BLOB
+  override def next(threadId: Int, count: Int): Array[ Byte ] = {
+    val bytes = new Array[ Byte ]( 100 )
+    Random.nextBytes( bytes )
+    bytes
+  }
+}
+case object DateGenerator extends RandomFieldGenerator[ Date ] {
+  val dataType = DATE
+  override def next(threadId: Int, count: Int): Date =
+    new Date( 1546304461000L + Random.nextInt( 1000) * 86400000L )
+}
+case object TimestampGenerator extends RandomFieldGenerator[ Instant ] {
+  val dataType = TIMESTAMP
+  override def next(threadId: Int, count: Int): Instant =
+    Instant.ofEpochMilli( 1546304461000L + Random.nextInt( 1000) * 86400000L )
+}
 
-  assert( ! data.isEmpty, " Seed data cannot be empty ")
-
-  def nextIdx(): Int
-
-  override def next(`type`: FieldType): ByteIterator = {
-    val idx = nextIdx()
-    `type` match {
-      case FieldType.TEXT => JVText( data( idx ) )
-      case FieldType.BLOB =>
-        val content = Base64.getDecoder.decode( data( idx ) )
-//        val in = new GZIPInputStream( new ByteArrayInputStream( content ) )
-//        val text = Source.fromInputStream( in ).mkString
-        JVBlob( content )
-      case _ => throw new IllegalArgumentException( " Only TEXT and BLOB types are supported for SeedGenerator")
+sealed trait SeedGenerator[ T ] extends FieldGenerator[ T ]{
+  val id: String
+  val random: Boolean
+  private var data = Array.empty[ String ]
+  private var currentIdx = -1
+  def init( seed: SeedData ): Unit = {
+    data = seed.getSeedData( id )
+  }
+  protected def value( content: String ): T
+  override def next(threadId: Int, count: Int): T = {
+    assert( ! data.isEmpty, s" Seed generator $id is empty. ")
+    val content = if( random ) data( Random.nextInt( data.length ) )
+    else{
+      currentIdx = ( currentIdx + 1 ) % data.length
+      data( currentIdx )
     }
+    value( content )
   }
 }
 
-case class RandomFieldGenerator() extends FieldGenerator {
-  override def next(`type`: FieldType ): ByteIterator = {
-    `type` match {
-      case FieldType.BOOLEAN => JVBoolean( Random.nextBoolean )
-      case FieldType.BYTE => JVByte( Random.nextInt( Byte.MaxValue ).toByte )
-      case FieldType.SHORT => JVShort( Random.nextInt( Short.MaxValue ).toShort )
-      case FieldType.INT => JVInt( Random.nextInt )
-      case FieldType.LONG => JVLong( Random.nextLong )
-      case FieldType.FLOAT => JVFloat( Random.nextFloat )
-      case FieldType.DOUBLE => JVDouble( Random.nextDouble )
-      case FieldType.TEXT => JVText( Random.alphanumeric.take( 100 ).mkString("") )
-      case FieldType.BLOB =>
-        val bytes = new Array[ Byte ]( 100 )
-        Random.nextBytes( bytes )
-        JVBlob( bytes )
-      case FieldType.DATE => JVDate( new Date( 1546304461000L + Random.nextInt( 1000) * 86400000L ) )
-      case FieldType.TIMESTAMP => JVTimestamp( Instant.ofEpochMilli( 1546304461000L + Random.nextInt( 1000) * 86400000L ) )
-
-    }
-  }
+case class SeedTextGenerator( random: Boolean, id: String ) extends SeedGenerator[ String ]{
+  override val dataType = TEXT
+  override protected def value(content: String): String = content
 }
-
-case class SeqSeedFieldGenerator( data: Array[ String ] ) extends SeedFieldGenerator( data ) {
-  private var currentIdx = 0
-
-  override def nextIdx(): Int = {
-    currentIdx = ( currentIdx + 1 ) % data.length
-    currentIdx
-  }
-}
-
-case class RandomSeedFieldGenerator( data: Array[ String ] ) extends SeedFieldGenerator( data ) {
-
-  override def nextIdx(): Int = {
-    Random.nextInt( data.length )
-  }
-}
-
-class RecordGenerator( schema: Schema ){
-
-  private val primaryKey = schema.primaryKey
-  private val fieldsByName = schema.allFields.groupBy( _.name ).map( kv => kv._1 -> kv._2.head )
-  private var generators = buildGenerators()
-
-  private def buildGenerators(): Map[Field, FieldGenerator] = {
-    val generators: Map[Field, FieldGenerator] = fieldsByName.valuesIterator.map{ field =>
-      val generator = field.generator match {
-        case FieldGeneratorType.RANDOM => RandomFieldGenerator()
-        case FieldGeneratorType.SEED_RANDOM => RandomSeedFieldGenerator( schema.getSeedData( field.name ) )
-        case FieldGeneratorType.SEED_SEQ => SeqSeedFieldGenerator(  schema.getSeedData( field.name )  )
-      }
-      field -> generator
-    }.toMap
-    generators
-  }
-
-  def nextKey(  threadId: Int, idx: Int ): String = {
-    val content = generators ( primaryKey ).next( FieldType.TEXT ).asInstanceOf[ JVText ].underlying
-    s"$threadId--$idx--$content"
-  }
-
-  def nextFields( fieldNames: String * ): util.Map[String, ByteIterator] = {
-    fieldNames.filterNot( _ == primaryKey.name ).map{ name =>
-      val field = fieldsByName( name )
-      val generator = generators( field )
-      name -> generator.next( field.`type` )
-    }.toMap.asJava
-  }
-
-  def nextAll( fieldNames: String * ): util.Map[ String, ByteIterator ] = {
-    nextFields( schema.fields.map( _.name ):_* )
-  }
-
-
+case class SeedBlobGenerator( random: Boolean, id: String ) extends SeedGenerator[ Array[ Byte ] ]{
+  override val dataType = BLOB
+  override protected def value(content: String): Array[ Byte ] = Base64.getDecoder.decode( content )
 }

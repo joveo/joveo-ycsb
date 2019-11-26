@@ -7,7 +7,6 @@ import com.datastax.oss.driver.api.core.CqlSession
 import com.datastax.oss.driver.api.core.cql.{BoundStatement, PreparedStatement, SimpleStatement}
 import com.datastax.oss.driver.api.querybuilder.QueryBuilder
 import com.datastax.oss.driver.api.querybuilder.QueryBuilder._
-import com.datastax.oss.driver.api.querybuilder.SchemaBuilder._
 import com.datastax.oss.driver.api.querybuilder.update.Assignment
 import com.joveox.ycsb.common._
 import com.yahoo.ycsb.ByteIterator
@@ -19,10 +18,10 @@ object ScyllaUtils {
 
   private var instance: ScyllaUtils = _
 
-  def init( schema: Schema, operationManager: YCSBOperationManager, session: CqlSession ): ScyllaUtils = {
+  def init( schema: Schema, useCaseManager: UseCaseManager, session: CqlSession ): ScyllaUtils = {
     synchronized {
       if (instance == null) {
-        instance = new ScyllaUtils( schema, operationManager, session )
+        instance = new ScyllaUtils( schema, useCaseManager, session )
       }
     }
     instance
@@ -38,13 +37,12 @@ object ScyllaUtils {
       }
     }
   }
-
 }
 
 
-class ScyllaUtils( schema: Schema, operationManager: YCSBOperationManager, session: CqlSession ){
+class ScyllaUtils( schema: Schema, useCaseManager: UseCaseManager, session: CqlSession ){
 
-  def bindRead( keys: Set[String], prepared: PreparedStatement ): BoundStatement = {
+  def bindRead( keys: List[String], prepared: PreparedStatement ): BoundStatement = {
     prepared.bind( keys.asJava )
   }
 
@@ -64,107 +62,68 @@ class ScyllaUtils( schema: Schema, operationManager: YCSBOperationManager, sessi
         case JVTimestamp( v ) => v
       }
     }
-    val fields = values.keySet().asScala.toList.sorted
-    prepared.bind(
-      (
-        fields.map( f => extract( values.get( f ) ) ) :: List( key )
-        ):_*
-    )
+    val fields = values.keySet().asScala.toList.sorted.map( f => extract( values.get( f ) ) ) ++ List( key )
+    prepared.bind( fields:_*)
   }
 
   def close(): Unit = {
     session.close()
   }
 
-  private def build(): Map[ ( DBOperation, java.util.Set[String] ), PreparedStatement ] = {
-    val operations = operationManager.all
+  private def build(): Map[ ( DBOperation.Value, java.util.Set[String] ), PreparedStatement ] = {
+    val operations = useCaseManager.useCases
     operations.map{ op =>
-      val stmt = op.operation match {
-        case DBOperation.CREATE => prepareInsert( op.table, op.primaryKey, op.fields )
-        case DBOperation.READ => prepareRead( op.table, op.primaryKey, op.fields )
-        case DBOperation.UPDATE => prepareUpdate( op.table, op.primaryKey, op.fields )
+      val ( keyspace, table, key, fields ) = ( schema.db, schema.name, schema.primaryKey.name, op.involvedFields.toList.sorted )
+      val stmt = op.dbOperation match {
+        case DBOperation.CREATE => prepareInsert( keyspace, table, key, fields )
+        case DBOperation.READ => prepareRead( keyspace, table, key, fields )
+        case DBOperation.UPDATE => prepareUpdate( keyspace, table, key, fields )
       }
-      ( op.operation, op.fields.toSet.asJava ) ->
+      ( op.dbOperation, fields.toSet.asJava ) ->
         ScyllaDBSession.retry(3, 1000, 2000,() => session.prepare( stmt ) )
     }.toMap
   }
 
   private val preparedStatementsByOperation = build()
 
-  def get( dbOperation: DBOperation, fields: java.util.Set[String] ): PreparedStatement = {
+  def get( dbOperation: DBOperation.Value, fields: java.util.Set[String] ): PreparedStatement = {
     preparedStatementsByOperation( ( dbOperation, fields ) )
   }
 
-  private def prepareRead( table: String, keyField: String, fields: List[String] ): SimpleStatement = {
-    selectFrom( table )
+  private def prepareRead( db: String, table: String, keyField: String, fields: List[String] ): SimpleStatement = {
+    selectFrom( db, table )
       .columns( fields:_* )
       .whereColumn( keyField )
-      .in( bindMarker( keyField ) )
+      .in( bindMarker( ) )
       .build()
   }
 
-  private def prepareUpdate( table: String, keyField: String, fields: List[String] ): SimpleStatement = {
-    QueryBuilder.update( table )
+  private def prepareUpdate( db: String, table: String, keyField: String, fields: List[String] ): SimpleStatement = {
+    QueryBuilder.update( db, table )
       .set(
         fields.map{ col =>
-          Assignment.setColumn( col, bindMarker())
+          Assignment.setColumn( col, bindMarker( ))
         }:_*
       )
       .whereColumn( keyField )
-      .isEqualTo( bindMarker( keyField ) )
+      .isEqualTo( bindMarker( ) )
       .build()
   }
 
-  private def prepareInsert( table: String, keyField: String, fields: List[String] ): SimpleStatement = {
-    var stmtBuilder = insertInto( table )
-      .value( keyField, bindMarker( keyField ) )
-    fields.foreach{ field =>
-      stmtBuilder = stmtBuilder.value( field, bindMarker( field ) )
+  private def prepareInsert( db: String, table: String, keyField: String, fields: List[String] ): SimpleStatement = {
+    val insert = insertInto( db, table )
+    fields match {
+      case Nil =>
+        insert.value( keyField, bindMarker() ).build()
+      case head:: rest  =>
+        var stmt = insert.value( head, bindMarker() )
+        rest.foreach{ field =>
+          stmt = stmt.value( field, bindMarker() )
+        }
+        stmt.value( keyField, bindMarker() ).build()
     }
-    stmtBuilder.build()
   }
 
-  protected def tableDDL( field: Field, isPrimaryKey: Boolean = false ): String = {
-    val scyllaType = field.`type` match {
-      case FieldType.BOOLEAN => "boolean"
-      case FieldType.BYTE => "tinyint"
-      case FieldType.SHORT => "smallint"
-      case FieldType.INT => "int"
-      case FieldType.LONG => "bigint"
-      case FieldType.FLOAT => "float"
-      case FieldType.DOUBLE => "double"
-      case FieldType.TEXT => "text"
-      case FieldType.BLOB => "blob"
-      case FieldType.DATE => "date"
-      case FieldType.TIMESTAMP => "timestamp"
-    }
-    s" ${field.name} $scyllaType ${ if( isPrimaryKey) "PRIMARY KEY" else ""}"
-  }
-
-  protected def tableDDL( db: String, table: String ): String = {
-    val key = tableDDL( schema.primaryKey, true )
-    val innerFields = schema.fields.map{ field =>
-      tableDDL( field )
-    }
-
-    s"""
-       |CREATE TABLE IF NOT EXISTS $db.$table (
-       |${( key :: innerFields ).mkString(",\n")}
-       |) WITH compaction={'class':'LeveledCompactionStrategy'} AND compression = {'sstable_compression': 'LZ4Compressor'}
-      """.stripMargin
-  }
-
-  def setup( ): Unit = {
-    session.execute(
-      createKeyspace( schema.db )
-        .ifNotExists()
-        .withSimpleStrategy( 2 )
-        .build()
-    ).wasApplied()
-
-    val createTable = tableDDL( schema.db, schema.name )
-    session.execute( createTable ).wasApplied()
-  }
 
 }
 

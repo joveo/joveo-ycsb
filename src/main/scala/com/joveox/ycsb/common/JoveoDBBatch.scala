@@ -20,7 +20,7 @@ abstract class JoveoDBBatch extends DB {
   protected var insertsBatchSize = 10
   protected var updateBatchSize = 10
 
-  protected var operationManager: YCSBOperationManager = _
+  protected var useCaseManager: UseCaseManager = _
 
   override def init(): Unit = {
     super.init()
@@ -28,12 +28,12 @@ abstract class JoveoDBBatch extends DB {
     readBatchSize = conf.batch.reads
     insertsBatchSize = conf.batch.inserts
     updateBatchSize = conf.batch.updates
-    operationManager = ConfigManager.get.operationManager
+    useCaseManager = ConfigManager.get.useCaseManager
   }
 
-  protected def getKey( op: DBOperation, id: String, operation: YCSBOperation ): BatchKey
-  protected def bulkRead( op: YCSBOperation )( ids: List[ String ] ): Status
-  protected def bulkWrite( op: YCSBOperation )( entities: List[ Entity ] ): Status
+  protected def getKey( op: DBOperation.Value, id: String, useCase: UseCase ): BatchKey
+  protected def bulkRead( op: UseCase )( ids: List[ String ] ): Status
+  protected def bulkWrite( op: UseCase )( entities: List[ Entity ] ): Status
 
   protected def exec[ Value ](
                                key: BatchKey,
@@ -53,20 +53,15 @@ abstract class JoveoDBBatch extends DB {
     }
   }
 
-  protected def getOperation( op: DBOperation, fields: util.Set[ String ] ): YCSBOperation = {
-    operationManager.get( op, fields ) match {
-      case Nil => throw new IllegalStateException(s"JoveoDBBatch: No operation found for ($op,${fields.asScala.mkString(",")}) ")
-      case head :: Nil => head
-      case values => throw new IllegalStateException(
-        s"JoveoDBBatch: More than 1 operation found. Values ${
-          values.map(_.toString()).mkString("\n")
-        }"
-      )
+  protected def getOperation( op: DBOperation.Value, fields: util.Set[ String ] ): UseCase = {
+    useCaseManager.get( op, fields ) match {
+      case None => throw new IllegalStateException(s"JoveoDBBatch: No operation found for ($op,${fields.asScala.mkString(",")}) ")
+      case Some( useCase ) => useCase
     }
   }
 
   protected def write(
-                       op: DBOperation,
+                       op: DBOperation.Value,
                        table: String,
                        key: String,
                        values: util.Map[String, ByteIterator]

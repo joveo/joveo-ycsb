@@ -1,74 +1,53 @@
 package com.joveox.ycsb.common
 
-import java.nio.file.Path
+import java.time.Instant
+import java.util.Date
 
-import enumeratum._
-import org.apache.logging.log4j.scala.Logging
-
-import scala.io.Source
-
-sealed trait FieldType extends EnumEntry
-object FieldType extends Enum[FieldType] {
-
-  val values = findValues
-
-  case object BOOLEAN extends FieldType
-  case object BYTE extends FieldType
-  case object SHORT extends FieldType
-  case object INT extends FieldType
-  case object LONG extends FieldType
-  case object FLOAT extends FieldType
-  case object DOUBLE extends FieldType
-  case object TEXT extends FieldType
-  case object BLOB extends FieldType
-  case object DATE extends FieldType
-  case object TIMESTAMP extends FieldType
+sealed trait Field[ T ]{
+  val name: String
+  val `type`: DataType[ T ]
 }
 
-case class Field(name: String, `type`: FieldType, generator: FieldGeneratorType )
-
-case class FieldLoader( name: String, path: Path )
-case class SeedData(
-                     dir: Path,
-                     loaders: List[ FieldLoader ] = List.empty
-                   )
-
+case class BOOLEANField(override val name: String) extends Field[ Boolean ]{
+  override val `type` = BOOLEAN
+}
+case class BYTEField(override val name: String) extends Field[ Byte ]{
+  override val `type` = BYTE
+}
+case class SHORTField(override val name: String) extends Field[ Short ]{
+  override val `type` = SHORT
+}
+case class INTField(override val name: String) extends Field[ Int ]{
+  override val `type` = INT
+}
+case class LONGField(override val name: String) extends Field[ Long ]{
+  override val `type` = LONG
+}
+case class FLOATField(override val name: String) extends Field[ Float ]{
+  override val `type` = FLOAT
+}
+case class DOUBLEField(override val name: String) extends Field[ Double ]{
+  override val `type` = DOUBLE
+}
+case class TEXTField(override val name: String) extends Field[ String ]{
+  override val `type` = TEXT
+}
+case class BLOBField(override val name: String) extends Field[ Array[ Byte ] ]{
+  override val `type` = BLOB
+}
+case class DATEField(override val name: String) extends Field[ Date ]{
+  override val `type` = DATE
+}
+case class TIMESTAMPField(override val name: String) extends Field[ Instant ]{
+  override val `type` = TIMESTAMP
+}
 
 
 case class Schema(
                    db: String,
                    name: String,
-                   seed: SeedData,
-                   primaryKey: Field,
-                   fields: List[ Field ] = List.empty
-                 ) extends Logging {
-
-  private val delimiter = "\n##_##\n"
-
-  private val seedsByField = loadAll()
-
-  protected def load( path: Path ): Array[String] = {
-    val source = Source.fromFile( path.toFile )
-    val content = source.mkString.split( delimiter )
-    source.close()
-    content
-  }
-
-  protected def loadAll(): Map[String, Array[String]] = {
-    logger.info("Loading seed data.")
-    seed.loaders.par.map{ loader =>
-      val path = seed.dir.resolve( loader.path )
-      val data = load( path )
-      logger.info(s"     Loaded seed data ${loader.name} found ${data.length} entries,  from $path")
-      loader.name -> data
-    }.toMap.seq
-  }
-
-  def getSeedData( field: String ): Array[ String ] = {
-    seedsByField.getOrElse( field, Array.empty )
-  }
-
-  def allFields: List[ Field ] = primaryKey :: fields
-
+                   primaryKey: TEXTField,
+                   fields: List[ Field[ _ ] ] = List.empty
+                 ) {
+  val allFields: List[Field[_]] = primaryKey :: fields
 }
-

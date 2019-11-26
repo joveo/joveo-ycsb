@@ -40,7 +40,7 @@ class MockDB extends JoveoDBBatch with  Logging {
     def sanitize( s: String ) = if( s.length < 20) s else ( s.take( 20 ) + "... ")
     result.asScala.map {
       case ( key, value ) =>
-        val valueStr = value.asInstanceOf[JvByteIterator] match {
+        val valueStr = value match {
           case JVBoolean(underlying) =>  underlying.toString
           case JVByte(underlying) => underlying.toString
           case JVShort(underlying) => underlying.toString
@@ -66,16 +66,16 @@ class MockDB extends JoveoDBBatch with  Logging {
     Status.OK
   }
 
-  override protected def getKey(op: DBOperation, key: String, operation: YCSBOperation): BatchKey = id
+  override protected def getKey(op: DBOperation.Value, key: String, useCase: UseCase ): BatchKey = id
 
-  override protected def bulkRead(op: YCSBOperation)(ids: List[String]): Status = {
-    log( s"op=READ, keys=${ids.mkString("::")}, fields=${op.fields.mkString("::")},null\n")
+  override protected def bulkRead(op: UseCase)(ids: List[String]): Status = {
+    log( s"op=READ, keys=${ids.mkString("::")}, fields=${op.involvedFields.mkString("::")},null\n")
   }
 
-  override protected def bulkWrite(op: YCSBOperation)(entities: List[ Entity ]): Status = {
+  override protected def bulkWrite(op: UseCase)(entities: List[ Entity ]): Status = {
     val keys = entities.map(_._1).mkString("::")
-    val fields = op.fields.mkString("::")
+    val fields = op.involvedFields.mkString("::")
     val elems = entities.map(_._2).map( serialize ).mkString("\n")
-    log( s"op=${op.operation}, keys=$keys, fields=$fields,elems=\n$elems\n")
+    log( s"op=${op.dbOperation}, keys=$keys, fields=$fields,elems=\n$elems\n")
   }
 }

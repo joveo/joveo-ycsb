@@ -1,8 +1,8 @@
-workload=com.joveox.ycsb.common.JoveoYCSBWorkload
-db=com.joveox.ycsb.common.MockDB
+workload=com.joveox.ycsb.scylla.ScyllaWorkload
+db=com.joveox.ycsb.scylla.ScyllaDB
 
-insertcount=1000
-operationcount=5000
+insertcount=10000
+operationcount=50000
 
 threadcount=2
 status.interval=5

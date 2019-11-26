@@ -5,8 +5,9 @@ import java.time.Duration
 
 import com.datastax.oss.driver.api.core.CqlSession
 import com.datastax.oss.driver.api.core.config.{DefaultDriverOption, DriverConfigLoader}
-import com.joveox.ycsb.common.ConfigManager
+import com.joveox.ycsb.common._
 import org.apache.logging.log4j.scala.Logging
+import com.datastax.oss.driver.api.querybuilder.SchemaBuilder._
 
 import scala.util.{Failure, Random, Success, Try}
 import scala.collection.JavaConverters._
@@ -23,6 +24,7 @@ object ScyllaDBSession extends Logging {
     } match {
       case Success( value ) => value
       case Failure( ex ) =>
+        logger.warn(s" ScyllaDB: Error while executing  ${ run.toString() }. Retries ${ retries } ", ex)
         if( retries > 0 ){
           if( waitMin > 0 )
             Thread.sleep( waitMin + ( if ( waitMax > waitMin) Random.nextInt( waitMax - waitMin ) else 0 ) )
@@ -35,7 +37,7 @@ object ScyllaDBSession extends Logging {
     }
   }
 
-  def build(): CqlSession = {
+  def build( useKeySpace: Boolean ): CqlSession = {
     ConfigManager.get.db[ScyllaConf]("scylla") match {
       case Failure(ex) => throw ex
       case Success(conf) =>
@@ -43,6 +45,8 @@ object ScyllaDBSession extends Logging {
         var builder = CqlSession.builder()
         conf.hosts match {
           case None =>
+            if( useKeySpace )
+              builder = builder.withKeyspace(keyspace)
             builder.build()
           case Some(nodes) =>
             val hosts = nodes.split(",").map { host =>
@@ -78,11 +82,59 @@ object ScyllaDBSession extends Logging {
             }
 
             builder = builder.withConfigLoader(configLoaderBuilder.build())
-            builder = builder.withKeyspace(keyspace)
+            if( useKeySpace )
+              builder = builder.withKeyspace(keyspace)
             builder.build()
         }
     }
   }
+
+
+
+  protected def tableDDL( field: Field[ _ ], isPrimaryKey: Boolean = false ): String = {
+
+    val scyllaType = field.`type` match {
+      case BOOLEAN => "boolean"
+      case BYTE => "tinyint"
+      case SHORT => "smallint"
+      case INT => "int"
+      case LONG => "bigint"
+      case FLOAT => "float"
+      case DOUBLE => "double"
+      case TEXT => "text"
+      case BLOB => "blob"
+      case DATE => "date"
+      case TIMESTAMP => "timestamp"
+    }
+    s" ${field.name} $scyllaType ${ if( isPrimaryKey) "PRIMARY KEY" else ""}"
+  }
+
+  protected def tableDDL( schema: Schema  ): String = {
+    val key = tableDDL( schema.primaryKey, true )
+    val innerFields = schema.fields.map{ field =>
+      tableDDL( field )
+    }
+
+    s"""
+       |CREATE TABLE IF NOT EXISTS ${schema.db}.${schema.name} (
+       |${( key :: innerFields ).mkString(",\n")}
+       |) WITH compaction={'class':'LeveledCompactionStrategy'} AND compression = {'sstable_compression': 'LZ4Compressor'}
+      """.stripMargin
+  }
+
+  def setup( schema: Schema, session: CqlSession ): Unit = {
+    session.execute(
+      createKeyspace( schema.db )
+        .ifNotExists()
+        .withSimpleStrategy( 2 )
+        .build()
+    ).wasApplied()
+
+    val createTable = tableDDL( schema )
+    session.execute( createTable ).wasApplied()
+  }
+
+
 
 }
 
