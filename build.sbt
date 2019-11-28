@@ -49,7 +49,8 @@ libraryDependencies ++= Seq(
   "com.beachape" %% "enumeratum" % "1.5.13",
   "com.github.pureconfig" %% "pureconfig" % "0.12.1",
   "com.github.pureconfig" %% "pureconfig-enumeratum" % "0.12.1",
-  "org.mongodb.scala" %% "mongo-scala-driver" % "2.7.0",
+
+  "com.lihaoyi" %% "upickle" % "0.8.0",
 
   "org.apache.logging.log4j" % "log4j-core" % "2.12.1",
   "org.apache.logging.log4j" % "log4j-api" % "2.12.1",

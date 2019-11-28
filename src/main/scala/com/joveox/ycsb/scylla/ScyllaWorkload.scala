@@ -14,7 +14,7 @@ class ScyllaWorkload extends JoveoYCSBWorkload {
     super.init(p)
     session = ScyllaDBSession.build( false )
     ScyllaDBSession.setup( ConfigManager.get.schema, session )
-    utils = ScyllaUtils.init( ConfigManager.get.schema, ConfigManager.get.useCaseManager, session)
+    utils = ScyllaUtils.init( ConfigManager.get.schema, ConfigManager.get.useCaseStore, session)
   }
 
   override def cleanup(): Unit = {

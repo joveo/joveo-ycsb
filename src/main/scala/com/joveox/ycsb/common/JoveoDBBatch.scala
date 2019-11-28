@@ -20,7 +20,7 @@ abstract class JoveoDBBatch extends DB {
   protected var insertsBatchSize = 10
   protected var updateBatchSize = 10
 
-  protected var useCaseManager: UseCaseManager = _
+  protected var useCaseStore: UseCaseStore = _
 
   override def init(): Unit = {
     super.init()
@@ -28,10 +28,10 @@ abstract class JoveoDBBatch extends DB {
     readBatchSize = conf.batch.reads
     insertsBatchSize = conf.batch.inserts
     updateBatchSize = conf.batch.updates
-    useCaseManager = ConfigManager.get.useCaseManager
+    useCaseStore = ConfigManager.get.useCaseStore
   }
 
-  protected def getKey( op: DBOperation.Value, id: String, useCase: UseCase ): BatchKey
+  protected def getKey( op: DBOperation, id: String, useCase: UseCase ): BatchKey
   protected def bulkRead( op: UseCase )( ids: List[ String ] ): Status
   protected def bulkWrite( op: UseCase )( entities: List[ Entity ] ): Status
 
@@ -53,15 +53,15 @@ abstract class JoveoDBBatch extends DB {
     }
   }
 
-  protected def getOperation( op: DBOperation.Value, fields: util.Set[ String ] ): UseCase = {
-    useCaseManager.get( op, fields ) match {
+  protected def getOperation( op: DBOperation, fields: util.Set[ String ] ): UseCase = {
+    useCaseStore.get( op, fields ) match {
       case None => throw new IllegalStateException(s"JoveoDBBatch: No operation found for ($op,${fields.asScala.mkString(",")}) ")
       case Some( useCase ) => useCase
     }
   }
 
   protected def write(
-                       op: DBOperation.Value,
+                       op: DBOperation,
                        table: String,
                        key: String,
                        values: util.Map[String, ByteIterator]

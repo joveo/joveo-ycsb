@@ -13,6 +13,7 @@ import scala.util.{Failure, Random, Success, Try}
 import scala.collection.JavaConverters._
 import pureconfig.generic.auto._
 
+import DataType._
 
 
 object ScyllaDBSession extends Logging {
@@ -91,7 +92,7 @@ object ScyllaDBSession extends Logging {
 
 
 
-  protected def tableDDL( field: Field[ _ ], isPrimaryKey: Boolean = false ): String = {
+  protected def tableDDL( field: Field, isPrimaryKey: Boolean = false ): String = {
 
     val scyllaType = field.`type` match {
       case BOOLEAN => "boolean"
@@ -110,13 +111,13 @@ object ScyllaDBSession extends Logging {
   }
 
   protected def tableDDL( schema: Schema  ): String = {
-    val key = tableDDL( schema.primaryKey, true )
+    val key = tableDDL( schema.key, true )
     val innerFields = schema.fields.map{ field =>
       tableDDL( field )
     }
 
     s"""
-       |CREATE TABLE IF NOT EXISTS ${schema.db}.${schema.name} (
+       |CREATE TABLE IF NOT EXISTS ${schema.db}.${schema.table} (
        |${( key :: innerFields ).mkString(",\n")}
        |) WITH compaction={'class':'LeveledCompactionStrategy'} AND compression = {'sstable_compression': 'LZ4Compressor'}
       """.stripMargin

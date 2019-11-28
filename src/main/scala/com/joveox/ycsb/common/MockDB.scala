@@ -66,15 +66,15 @@ class MockDB extends JoveoDBBatch with  Logging {
     Status.OK
   }
 
-  override protected def getKey(op: DBOperation.Value, key: String, useCase: UseCase ): BatchKey = id
+  override protected def getKey(op: DBOperation, key: String, useCase: UseCase ): BatchKey = id
 
   override protected def bulkRead(op: UseCase)(ids: List[String]): Status = {
-    log( s"op=READ, keys=${ids.mkString("::")}, fields=${op.involvedFields.mkString("::")},null\n")
+    log( s"op=READ, keys=${ids.mkString("::")}, fields=${op.nonKeyFields.mkString("::")},null\n")
   }
 
   override protected def bulkWrite(op: UseCase)(entities: List[ Entity ]): Status = {
     val keys = entities.map(_._1).mkString("::")
-    val fields = op.involvedFields.mkString("::")
+    val fields = op.nonKeyFields.mkString("::")
     val elems = entities.map(_._2).map( serialize ).mkString("\n")
     log( s"op=${op.dbOperation}, keys=$keys, fields=$fields,elems=\n$elems\n")
   }

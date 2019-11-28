@@ -18,10 +18,10 @@ object ScyllaUtils {
 
   private var instance: ScyllaUtils = _
 
-  def init( schema: Schema, useCaseManager: UseCaseManager, session: CqlSession ): ScyllaUtils = {
+  def init( schema: Schema, useCaseStore: UseCaseStore, session: CqlSession ): ScyllaUtils = {
     synchronized {
       if (instance == null) {
-        instance = new ScyllaUtils( schema, useCaseManager, session )
+        instance = new ScyllaUtils( schema, useCaseStore, session )
       }
     }
     instance
@@ -40,13 +40,14 @@ object ScyllaUtils {
 }
 
 
-class ScyllaUtils( schema: Schema, useCaseManager: UseCaseManager, session: CqlSession ){
+class ScyllaUtils( schema: Schema, useCaseStore: UseCaseStore, session: CqlSession ){
 
   def bindRead( keys: List[String], prepared: PreparedStatement ): BoundStatement = {
     prepared.bind( keys.asJava )
   }
 
   def bindWrite(key: String, values: util.Map[String, ByteIterator], prepared: PreparedStatement ): BoundStatement = {
+    //TODO: Use type coercion to match schema field type
     def extract( bit: ByteIterator  ): AnyRef = {
       bit match {
         case JVBoolean( v ) => java.lang.Boolean.valueOf( v )
@@ -70,10 +71,10 @@ class ScyllaUtils( schema: Schema, useCaseManager: UseCaseManager, session: CqlS
     session.close()
   }
 
-  private def build(): Map[ ( DBOperation.Value, java.util.Set[String] ), PreparedStatement ] = {
-    val operations = useCaseManager.useCases
+  private def build(): Map[ ( DBOperation, java.util.Set[String] ), PreparedStatement ] = {
+    val operations = useCaseStore.useCases
     operations.map{ op =>
-      val ( keyspace, table, key, fields ) = ( schema.db, schema.name, schema.primaryKey.name, op.involvedFields.toList.sorted )
+      val ( keyspace, table, key, fields ) = ( schema.db, schema.table, schema.key.name, op.nonKeyFields.toList.sorted )
       val stmt = op.dbOperation match {
         case DBOperation.CREATE => prepareInsert( keyspace, table, key, fields )
         case DBOperation.READ => prepareRead( keyspace, table, key, fields )
@@ -86,7 +87,7 @@ class ScyllaUtils( schema: Schema, useCaseManager: UseCaseManager, session: CqlS
 
   private val preparedStatementsByOperation = build()
 
-  def get( dbOperation: DBOperation.Value, fields: java.util.Set[String] ): PreparedStatement = {
+  def get( dbOperation: DBOperation, fields: java.util.Set[String] ): PreparedStatement = {
     preparedStatementsByOperation( ( dbOperation, fields ) )
   }
 

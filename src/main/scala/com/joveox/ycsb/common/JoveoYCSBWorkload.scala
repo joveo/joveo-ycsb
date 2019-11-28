@@ -21,7 +21,7 @@ class JoveoYCSBWorkload extends Workload with Logging{
 
   override def initThread(p: Properties, threadId: Int, totalThreads: Int): AnyRef = {
     super.initThread( p, threadId, totalThreads )
-    configManager.useCaseManager.iterator( threadId, totalThreads )
+    configManager.useCaseIterator( threadId, totalThreads )
   }
 
   override def doInsert( db: DB, threadState: Any ): Boolean = {

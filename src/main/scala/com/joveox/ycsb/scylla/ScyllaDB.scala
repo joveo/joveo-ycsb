@@ -87,15 +87,15 @@ class ScyllaDB extends JoveoDBBatch with Logging {
     }
   }
 
-  override protected def getKey(op: DBOperation.Value, id: String, useCase: UseCase ): (PreparedStatement, Hosts) = {
-    val prepared = preparedStatementManager.get( op, useCase.involvedFields.asJava )
+  override protected def getKey(op: DBOperation, id: String, useCase: UseCase ): (PreparedStatement, Hosts) = {
+    val prepared = preparedStatementManager.get( op, useCase.nonKeyFields.asJava )
     val nodes = hosts( id )
     prepared -> nodes
   }
 
   override protected def bulkRead(op: UseCase)(ids: List[String]): Status = {
     Try {
-      val prepared = preparedStatementManager.get(op.dbOperation, op.involvedFields.asJava )
+      val prepared = preparedStatementManager.get(op.dbOperation, op.nonKeyFields.asJava )
       val result = new util.HashMap[String, ByteIterator]()
       val stmt = preparedStatementManager.bindRead(ids.distinct, prepared)
       readTo( ids.size, result, () => session.execute(stmt))
@@ -109,7 +109,7 @@ class ScyllaDB extends JoveoDBBatch with Logging {
 
   override protected def bulkWrite(op: UseCase)(entities: List[(String, util.Map[String, ByteIterator])]): Status = {
     Try {
-      val prepared = preparedStatementManager.get( op.dbOperation, op.involvedFields.asJava )
+      val prepared = preparedStatementManager.get( op.dbOperation, op.nonKeyFields.asJava )
       entities match {
         case Nil => Status.ERROR
         case head :: Nil =>

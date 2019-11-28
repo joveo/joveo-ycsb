@@ -1,46 +1,67 @@
 package com.joveox.ycsb.common
 
+import java.nio.file.Path
 import java.util
 
 import com.yahoo.ycsb.{ByteIterator, DB, Status}
 import com.yahoo.ycsb.generator.DiscreteGenerator
+import enumeratum._
 import org.apache.logging.log4j.scala.Logging
 
 import scala.collection.AbstractIterator
 import scala.collection.JavaConverters._
 
-object DBOperation extends Enumeration{
-  val CREATE, READ, UPDATE, DELETE, SCAN = Value
+sealed trait DBOperation extends EnumEntry
+object DBOperation extends Enum[DBOperation] {
+  val values = findValues
+  case object CREATE   extends DBOperation
+  case object READ extends DBOperation
+  case object UPDATE      extends DBOperation
+  case object DELETE     extends DBOperation
+  case object SCAN     extends DBOperation
 }
 
-case class UseCaseField( name: String, generator: FieldGenerator[ _ ], threadUnique: Boolean = false )
+case class UseCaseField( name: String, generator: FieldGenerator, threadUnique: Boolean = false )
 
-sealed trait UseCase{
-  val dbOperation: DBOperation.Value
+sealed trait UseCase {
+  val dbOperation: DBOperation
   val name: String
   val load: Int
-  val keyGenerator: FieldGenerator[ String ]
+  val key: UseCaseField
   def init( seed: SeedData ): Unit
   def runNext( db: DB, schema: Schema, threadId: Int, idx: Int ): Status
-  def nextKey( threadId: Int, idx: Int ): String = keyGenerator.next( threadId, idx )
-  val involvedFields: Set[ String ]
+  def nextKey( threadId: Int, idx: Int ): String = key.generator.next( threadId, idx ).toString
+  val nonKeyFields: Set[ String ]
+
+  def cleanup() : Unit  = ()
+
+  def copy( ) : UseCase = {
+    this match {
+      case v : Read => v.copy()
+      case write: Write =>
+        write match {
+          case v: Create => v.copy()
+          case v: Update=> v.copy()
+          case v: Load => v.copy()
+        }
+    }
+  }
 }
 
-case class Read( name: String, load: Int, keyGenerator: FieldGenerator[ String ], fields: Set[ String ]  ) extends UseCase {
+case class Read( name: String, load: Int, key: UseCaseField, nonKeyFields: Set[ String ]  ) extends UseCase {
 
   val dbOperation = DBOperation.READ
 
   def init( seed: SeedData ): Unit = {
-    keyGenerator.init( seed )
+    key.generator.init( seed )
   }
 
   override def runNext(db: DB, schema: Schema, threadId: Int, idx: Int): Status = {
-    val key = nextKey( threadId, idx )
+    val keyValue = nextKey( threadId, idx )
     val result = new java.util.HashMap[ String, ByteIterator ]
-    db.read( schema.name, key, fields.toSet.asJava, result )
+    db.read( schema.table, keyValue, nonKeyFields.asJava, result )
   }
 
-  override val involvedFields: Set[String] = fields
 }
 
 sealed trait Write extends UseCase {
@@ -50,58 +71,62 @@ sealed trait Write extends UseCase {
   def run( db: DB, table: String, key: String, values: java.util.Map[ String, ByteIterator ] ): Status
 
   def init( seed: SeedData ): Unit = {
-    ( keyGenerator :: fields.map( _.generator ) ).foreach( _.init( seed ))
+    ( key.generator :: fields.map( _.generator ) ).foreach( _.init( seed ))
   }
 
   override def runNext(db: DB, schema: Schema, threadId: Int, idx: Int): Status = {
-    val key = nextKey( threadId, idx )
+    val keyValue = nextKey( threadId, idx )
     val values = fields.map{ field =>
-      field.name -> field.generator.nextByteIterator( threadId, idx ).asInstanceOf[ ByteIterator ]
+      field.name -> field.generator.next( threadId, idx ).asInstanceOf[ ByteIterator ]
     }.toMap.asJava
 
-    run( db, schema.name, key, values )
+    run( db, schema.table, keyValue, values )
   }
 
-  override val involvedFields: Set[String] = fields.map(_.name).toSet
+  override val nonKeyFields: Set[String] = fields.map(_.name).toSet
 
 }
 
-case class Create( name: String, load: Int, keyGenerator: FieldGenerator[ String ],  fields: List[ UseCaseField ] ) extends Write {
+case class Create( name: String, load: Int, key: UseCaseField,  fields: List[ UseCaseField ] ) extends Write {
 
   val dbOperation = DBOperation.CREATE
 
-  override def run(db: DB, table: String, key: String, values: util.Map[String, ByteIterator]): Status = db.insert( table, key, values )
+  override def run(db: DB, table: String, keyValue: String, values: util.Map[String, ByteIterator]): Status = db.insert( table, keyValue, values )
 
 }
-case class Update( name: String, load: Int, keyGenerator: FieldGenerator[ String ],  fields: List[ UseCaseField ] ) extends Write {
+case class Update( name: String, load: Int, key: UseCaseField,  fields: List[ UseCaseField ] ) extends Write {
 
   val dbOperation = DBOperation.READ
 
-  override def run(db: DB, table: String, key: String, values: util.Map[String, ByteIterator]): Status = db.update( table, key, values )
+  override def run(db: DB, table: String, keyValue: String, values: util.Map[String, ByteIterator]): Status = db.update( table, keyValue, values )
 
 }
 
+case class Load( name: String, load: Int, key: UseCaseField,  fields: List[ UseCaseField ], persistKeys: Boolean, outputPath: Option[ Path ] )
+  extends Write {
+  val dbOperation = DBOperation.CREATE
 
-case class UseCaseManager( schema: Schema, seed: SeedData, useCases: List[ UseCase ] ) extends Logging {
+  override def run(db: DB, table: String, keyValue: String, values: util.Map[String, ByteIterator]): Status = {
+    db.insert( table, keyValue, values )
+  }
 
-  useCases.foreach( _.init( seed ))
+  override def cleanup(): Unit = {
+    super.cleanup()
+  }
 
-  logger.info(s" Initialized all following operation:\n${useCases.mkString("\n")}")
+}
 
-  private val useCasesByPayload = useCases.groupBy( op => ( op.dbOperation, op.involvedFields )  )
+case class UseCaseStore( useCases: List[ UseCase ] ){
+
+  private val useCasesByPayload = useCases.groupBy( op => ( op.dbOperation, op.nonKeyFields )  )
     .map( kv => kv._1 -> kv._2.head )
 
-  def get( operation: DBOperation.Value, fields: java.util.Set[String] ): Option[ UseCase ] = {
+  def get( operation: DBOperation, fields: java.util.Set[String] ): Option[ UseCase ] = {
     useCasesByPayload.get( ( operation, fields.asScala.toSet ) )
   }
-
-  def iterator( threadId: Int, totalThreads: Int ): UseCaseIterator = {
-    new UseCaseIterator( threadId, threadId, useCases )
-  }
-
 }
 
-class UseCaseIterator(val threadId: Int, val totalThreads: Int, useCases: List[ UseCase ] ) extends AbstractIterator[ UseCase ]{
+case class UseCaseIterator( threadId: Int, totalThreads: Int, useCases: List[ UseCase ] ) extends AbstractIterator[ UseCase ]{
 
   private val useCaseByName = useCases.groupBy( _.name ).map( kv => kv._1 -> kv._2.head )
   private val generator = new DiscreteGenerator()

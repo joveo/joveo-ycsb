@@ -1,53 +1,58 @@
 package com.joveox.ycsb.common
 
-import java.time.Instant
-import java.util.Date
+import DataType._
 
-sealed trait Field[ T ]{
+sealed trait Field {
   val name: String
-  val `type`: DataType[ T ]
+  val `type`: DataType
 }
 
-case class BOOLEANField(override val name: String) extends Field[ Boolean ]{
+case class BOOLEANField(override val name: String) extends Field{
   override val `type` = BOOLEAN
 }
-case class BYTEField(override val name: String) extends Field[ Byte ]{
+case class BYTEField(override val name: String) extends Field{
   override val `type` = BYTE
 }
-case class SHORTField(override val name: String) extends Field[ Short ]{
+case class SHORTField(override val name: String) extends Field{
   override val `type` = SHORT
 }
-case class INTField(override val name: String) extends Field[ Int ]{
+case class INTField(override val name: String) extends Field{
   override val `type` = INT
 }
-case class LONGField(override val name: String) extends Field[ Long ]{
+case class LONGField(override val name: String) extends Field{
   override val `type` = LONG
 }
-case class FLOATField(override val name: String) extends Field[ Float ]{
+case class FLOATField(override val name: String) extends Field{
   override val `type` = FLOAT
 }
-case class DOUBLEField(override val name: String) extends Field[ Double ]{
+case class DOUBLEField(override val name: String) extends Field{
   override val `type` = DOUBLE
 }
-case class TEXTField(override val name: String) extends Field[ String ]{
+case class TEXTField(override val name: String) extends Field{
   override val `type` = TEXT
 }
-case class BLOBField(override val name: String) extends Field[ Array[ Byte ] ]{
+case class BLOBField(override val name: String) extends Field{
   override val `type` = BLOB
 }
-case class DATEField(override val name: String) extends Field[ Date ]{
+case class DATEField(override val name: String) extends Field{
   override val `type` = DATE
 }
-case class TIMESTAMPField(override val name: String) extends Field[ Instant ]{
+case class TIMESTAMPField(override val name: String) extends Field{
   override val `type` = TIMESTAMP
+}
+case class LISTField(override val name: String) extends Field{
+  override val `type` = LIST
+}
+case class MAPField(override val name: String) extends Field{
+  override val `type` = MAP
 }
 
 
 case class Schema(
                    db: String,
-                   name: String,
-                   primaryKey: TEXTField,
-                   fields: List[ Field[ _ ] ] = List.empty
+                   table: String,
+                   key: TEXTField,
+                   fields: List[ Field ] = List.empty
                  ) {
-  val allFields: List[Field[_]] = primaryKey :: fields
+  val allFields: List[Field] = key :: fields
 }
