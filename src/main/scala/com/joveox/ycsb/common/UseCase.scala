@@ -6,7 +6,6 @@ import java.util
 import com.yahoo.ycsb.{ByteIterator, DB, Status}
 import com.yahoo.ycsb.generator.DiscreteGenerator
 import enumeratum._
-import org.apache.logging.log4j.scala.Logging
 
 import scala.collection.AbstractIterator
 import scala.collection.JavaConverters._
@@ -27,6 +26,7 @@ sealed trait UseCase {
   val dbOperation: DBOperation
   val name: String
   val load: Int
+  val batchSize: Int
   val key: UseCaseField
   def init( seed: SeedData ): Unit
   def runNext( db: DB, schema: Schema, threadId: Int, idx: Int ): Status
@@ -48,13 +48,15 @@ sealed trait UseCase {
   }
 }
 
-case class Read( name: String, load: Int, key: UseCaseField, nonKeyFields: Set[ String ]  ) extends UseCase {
+case class Read( name: String, load: Int, key: UseCaseField, nonKeyFields: Set[ String ], batchSize: Int = 1 ) extends UseCase {
 
   val dbOperation = DBOperation.READ
 
   def init( seed: SeedData ): Unit = {
     key.generator.init( seed )
   }
+
+
 
   override def runNext(db: DB, schema: Schema, threadId: Int, idx: Int): Status = {
     val keyValue = nextKey( threadId, idx )
@@ -87,14 +89,14 @@ sealed trait Write extends UseCase {
 
 }
 
-case class Create( name: String, load: Int, key: UseCaseField,  fields: List[ UseCaseField ] ) extends Write {
+case class Create( name: String, load: Int, key: UseCaseField,  fields: List[ UseCaseField ], batchSize: Int = 1 ) extends Write {
 
   val dbOperation = DBOperation.CREATE
 
   override def run(db: DB, table: String, keyValue: String, values: util.Map[String, ByteIterator]): Status = db.insert( table, keyValue, values )
 
 }
-case class Update( name: String, load: Int, key: UseCaseField,  fields: List[ UseCaseField ] ) extends Write {
+case class Update( name: String, load: Int, key: UseCaseField,  fields: List[ UseCaseField ], batchSize: Int = 1 ) extends Write {
 
   val dbOperation = DBOperation.READ
 
@@ -102,7 +104,7 @@ case class Update( name: String, load: Int, key: UseCaseField,  fields: List[ Us
 
 }
 
-case class Load( name: String, load: Int, key: UseCaseField,  fields: List[ UseCaseField ], persistKeys: Boolean, outputPath: Option[ Path ] )
+case class Load( name: String, load: Int, key: UseCaseField,  fields: List[ UseCaseField ], batchSize: Int = 1, persistKeys: Boolean, outputPath: Option[ Path ] )
   extends Write {
   val dbOperation = DBOperation.CREATE
 
@@ -114,19 +116,33 @@ case class Load( name: String, load: Int, key: UseCaseField,  fields: List[ UseC
     super.cleanup()
   }
 
+  def asCreate: Create = Create( name, load, key, fields )
+
 }
 
-case class UseCaseStore( useCases: List[ UseCase ] ){
+case class UseCaseStore( inserts: List[ Create ], reads: List[ Read ], updates: List[ Update ] ){
 
-  private val useCasesByPayload = useCases.groupBy( op => ( op.dbOperation, op.nonKeyFields )  )
+  private val readsByFields = reads
+    .groupBy( _.nonKeyFields )
     .map( kv => kv._1 -> kv._2.head )
 
-  def get( operation: DBOperation, fields: java.util.Set[String] ): Option[ UseCase ] = {
-    useCasesByPayload.get( ( operation, fields.asScala.toSet ) )
-  }
+  private val insertsByFields = inserts
+    .groupBy( _.nonKeyFields )
+    .map( kv => kv._1 -> kv._2.head )
+
+  private val updatesByFields = updates
+    .groupBy( _.nonKeyFields )
+    .map( kv => kv._1 -> kv._2.head )
+
+
+  def read( fields: java.util.Set[String] ): Option[ Read ] =  readsByFields.get( fields.asScala.toSet )
+  def update( fields: java.util.Set[String] ): Option[ Update ] =  updatesByFields.get( fields.asScala.toSet )
+  def insert( fields: java.util.Set[String] ): Option[ Create ] =  insertsByFields.get( fields.asScala.toSet )
+
+  def all: List[ UseCase ] = inserts ++ updates ++ reads
 }
 
-case class UseCaseIterator( threadId: Int, totalThreads: Int, useCases: List[ UseCase ] ) extends AbstractIterator[ UseCase ]{
+case class UseCaseGenerator(threadId: Int, totalThreads: Int, useCases: List[ UseCase ] ) extends AbstractIterator[ UseCase ]{
 
   private val useCaseByName = useCases.groupBy( _.name ).map( kv => kv._1 -> kv._2.head )
   private val generator = new DiscreteGenerator()

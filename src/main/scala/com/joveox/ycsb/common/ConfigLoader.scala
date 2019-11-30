@@ -3,18 +3,13 @@ package com.joveox.ycsb.common
 import java.nio.file.{Path, Paths}
 
 import com.typesafe.config.Config
-import pureconfig.{ConfigReader, ConfigSource, Derivation}
 import pureconfig.generic.auto._
 import pureconfig._
 
-import scala.reflect.ClassTag
-import scala.util.Try
-
-
-case class DBBatchConf( reads: Int = 30, updates: Int = 10, inserts: Int = 10 )
-case class DBCommon( batch: DBBatchConf = DBBatchConf() )
 
 case class MockDBConf( console: Boolean = true, output: Path = Paths.get("/","tmp", "joveo.ycsb", "mock.db") )
+case class DBConf( mockDBConf: MockDBConf, dbClass: String, config: Map[ String, String ] )
+
 
 
 
@@ -22,28 +17,24 @@ class ConfigManager( config: Config, isLoadPhase: Boolean ) {
 
   private val source = ConfigSource.fromConfig( config )
 
-  private val dbSource = source.at("db")
-
-  val dbCommon: DBCommon = dbSource.at( "common").load[ DBCommon ].getOrElse( DBCommon() )
-  val mockDBCommon: MockDBConf = source.at( "mock").load[ MockDBConf ].getOrElse( MockDBConf() )
-
-  def db[T: ClassTag]( name: String )(implicit reader: Derivation[ConfigReader[ T ]]): Try[ T ] = Try{
-    dbSource.at( name ).loadOrThrow[T]
-  }
-
-  private val seed: SeedData = source.at("seed").loadOrThrow[ SeedData ]
+  val dbConf = source.at("db").loadOrThrow[ DBConf ]
+  val seed: SeedData = source.at("seed").loadOrThrow[ SeedData ]
   val schema: Schema = source.at("schema").loadOrThrow[ Schema ]
   private val load: Load = source.at("load").loadOrThrow[ Load ]
   private val transactions: List[ UseCase ] = source.at("transactions").load[ List[ UseCase ] ].getOrElse( List.empty )
 
-  private val useCases = if( isLoadPhase ) List( load ) else transactions
+  private val useCases = if( isLoadPhase ) List( load.asCreate ) else transactions
 
-  val useCaseStore = UseCaseStore( useCases )
+  val useCaseStore = UseCaseStore(
+    useCases.filter( _.isInstanceOf[ Create] ).map( _.asInstanceOf[ Create ] ) ,
+    useCases.filter( _.isInstanceOf[ Read] ).map( _.asInstanceOf[ Read ] ) ,
+    useCases.filter( _.isInstanceOf[ Update ] ).map( _.asInstanceOf[ Update ] ) ,
+  )
 
-  def useCaseIterator( threadId: Int, totalThreads: Int ): UseCaseIterator = {
+  def useCaseGenerator(threadId: Int, totalThreads: Int ): UseCaseGenerator = {
     val useCasesCopy = useCases.map( _.copy() )
     useCasesCopy.foreach( _.init( seed ) )
-    UseCaseIterator( threadId, totalThreads, useCasesCopy )
+    UseCaseGenerator( threadId, totalThreads, useCasesCopy )
   }
 
 }

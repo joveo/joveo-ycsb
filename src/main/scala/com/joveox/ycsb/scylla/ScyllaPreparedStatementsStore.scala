@@ -14,39 +14,35 @@ import com.yahoo.ycsb.ByteIterator
 import scala.collection.JavaConverters._
 
 
-object ScyllaUtils {
+class ScyllaPreparedStatementsStore(schema: Schema, useCaseStore: UseCaseStore, session: CqlSession ){
 
-  private var instance: ScyllaUtils = _
+  private val reads = buildPrepare( useCaseStore.reads, prepareRead )
+  private val updates = buildPrepare( useCaseStore.updates, prepareUpdate )
+  private val inserts = buildPrepare( useCaseStore.inserts, prepareInsert )
 
-  def init( schema: Schema, useCaseStore: UseCaseStore, session: CqlSession ): ScyllaUtils = {
-    synchronized {
-      if (instance == null) {
-        instance = new ScyllaUtils( schema, useCaseStore, session )
-      }
-    }
-    instance
+  def buildPrepare[ T <: UseCase ]( useCases: List[T], fn: ( String, String, String, List[ String ] ) => SimpleStatement ): Map[ T, PreparedStatement ] = {
+    useCases.map{ useCase =>
+      useCase -> ScyllaSession.retry(
+        3,
+        1000, 2000,
+        () => session.prepare( fn( schema.db, schema.table, useCase.key.name, useCase.nonKeyFields.toList.sorted ) )
+      )
+    }.toMap
   }
 
-  def get: ScyllaUtils = instance
-
-  def close(): Unit = {
-    synchronized{
-      if( instance != null ){
-        instance.close()
-        instance = null
-      }
+  def getPrepared( useCase: UseCase ): Option[ PreparedStatement ] = {
+    useCase match {
+      case u: Read => reads.get( u )
+      case u: Update => updates.get( u )
+      case u: Create => inserts.get( u )
     }
   }
-}
-
-
-class ScyllaUtils( schema: Schema, useCaseStore: UseCaseStore, session: CqlSession ){
 
   def bindRead( keys: List[String], prepared: PreparedStatement ): BoundStatement = {
     prepared.bind( keys.asJava )
   }
 
-  def bindWrite(key: String, values: util.Map[String, ByteIterator], prepared: PreparedStatement ): BoundStatement = {
+  def bindWrite( entity: ( String, util.Map[String, ByteIterator] ), prepared: PreparedStatement ): BoundStatement = {
     //TODO: Use type coercion to match schema field type
     def extract( bit: ByteIterator  ): AnyRef = {
       bit match {
@@ -63,32 +59,12 @@ class ScyllaUtils( schema: Schema, useCaseStore: UseCaseStore, session: CqlSessi
         case JVTimestamp( v ) => v
       }
     }
-    val fields = values.keySet().asScala.toList.sorted.map( f => extract( values.get( f ) ) ) ++ List( key )
+    val fields = entity._2.keySet().asScala.toList.sorted.map( f => extract( entity._2.get( f ) ) ) ++ List( entity._1 )
     prepared.bind( fields:_*)
   }
 
   def close(): Unit = {
     session.close()
-  }
-
-  private def build(): Map[ ( DBOperation, java.util.Set[String] ), PreparedStatement ] = {
-    val operations = useCaseStore.useCases
-    operations.map{ op =>
-      val ( keyspace, table, key, fields ) = ( schema.db, schema.table, schema.key.name, op.nonKeyFields.toList.sorted )
-      val stmt = op.dbOperation match {
-        case DBOperation.CREATE => prepareInsert( keyspace, table, key, fields )
-        case DBOperation.READ => prepareRead( keyspace, table, key, fields )
-        case DBOperation.UPDATE => prepareUpdate( keyspace, table, key, fields )
-      }
-      ( op.dbOperation, fields.toSet.asJava ) ->
-        ScyllaDBSession.retry(3, 1000, 2000,() => session.prepare( stmt ) )
-    }.toMap
-  }
-
-  private val preparedStatementsByOperation = build()
-
-  def get( dbOperation: DBOperation, fields: java.util.Set[String] ): PreparedStatement = {
-    preparedStatementsByOperation( ( dbOperation, fields ) )
   }
 
   private def prepareRead( db: String, table: String, keyField: String, fields: List[String] ): SimpleStatement = {

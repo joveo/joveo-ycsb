@@ -1,7 +1,7 @@
 package com.joveox.ycsb.common
 
 import java.io.{BufferedWriter, FileWriter, Writer}
-import java.nio.file.Files
+import java.nio.file.{Files, Paths}
 
 import com.yahoo.ycsb.{ByteIterator, Status}
 import org.apache.logging.log4j.scala.Logging
@@ -13,23 +13,21 @@ import scala.collection.JavaConverters._
 
 
 
-class MockDB extends JoveoDBBatch with  Logging {
-  override type BatchKey = String
+class MockDB extends DBExtension with  Logging {
 
   private var db : Writer = _
 
   private val id = Random.alphanumeric.take(10).mkString("")
 
   override def cleanup(): Unit = {
-    super.cleanup()
     db.flush()
     db.close()
   }
 
-  override def init(): Unit = {
-    super.init()
-    val conf = ConfigManager.get.mockDBCommon
-    val root = conf.output
+
+  override def init( config: Map[ String, String ], schema: Schema, global: Any ): Unit = {
+    val conf = config
+    val root = Paths.get( conf( "output ") )
     if( ! root.toFile.exists() )
       Files.createDirectories( root )
     val dbPath = root.resolve( id + ".txt"  )
@@ -52,6 +50,8 @@ class MockDB extends JoveoDBBatch with  Logging {
           case JVBlob(underlying) => s" [base-64 size=${underlying.length}] content="+ sanitize( Base64.getEncoder.encodeToString( underlying ) )
           case JVDate(underlying) => underlying.toString
           case JVTimestamp(underlying) => underlying.toString
+          case JVList( values ) => values.map( _.underlying.toString ).mkString("::")
+          case JVMap( values ) => values.map( kv => s"${kv._1.toString}:${kv._2.toString}")
           case _ => "UNKNOWN"
         }
         s"$key=$valueStr"
@@ -66,16 +66,44 @@ class MockDB extends JoveoDBBatch with  Logging {
     Status.OK
   }
 
-  override protected def getKey(op: DBOperation, key: String, useCase: UseCase ): BatchKey = id
+  override def initGlobal(config: Map[String, String], schema: Schema, useCaseStore: UseCaseStore): Any = ()
 
-  override protected def bulkRead(op: UseCase)(ids: List[String]): Status = {
-    log( s"op=READ, keys=${ids.mkString("::")}, fields=${op.nonKeyFields.mkString("::")},null\n")
+  override def read(op: Read)(key: String): Status = {
+    log( s"op=READ, keys=$key, fields=${op.nonKeyFields.mkString("::")},null\n")
   }
 
-  override protected def bulkWrite(op: UseCase)(entities: List[ Entity ]): Status = {
+  override def bulkRead(op: Read)(keys: List[String]): Status = {
+    log( s"op=READ, keys=${keys.mkString(",")}, fields=${op.nonKeyFields.mkString("::")},null\n")
+  }
+
+  protected def write(op: UseCase)(entity: Entity ): Status = {
+    val fields = op.nonKeyFields.mkString("::")
+    val elems = serialize( entity._2 )
+    log( s"op=${op.dbOperation}, keys=${entity._1}, fields=$fields,elems=\n$elems\n")
+  }
+
+  protected def bulkWrite(op: UseCase)(entities: List[ Entity ]): Status = {
     val keys = entities.map(_._1).mkString("::")
     val fields = op.nonKeyFields.mkString("::")
     val elems = entities.map(_._2).map( serialize ).mkString("\n")
     log( s"op=${op.dbOperation}, keys=$keys, fields=$fields,elems=\n$elems\n")
   }
+
+  override def update(op: Update)(entity: Entity ): Status = {
+    write( op )( entity )
+  }
+
+  override def bulkUpdate(op: Update)(entities: List[ Entity ]): Status = {
+    bulkWrite( op )( entities )
+  }
+
+  override def insert(op: Create)(entity: Entity): Status = {
+    write( op )( entity )
+  }
+
+  override def bulkInsert(op: Create)(entities: List[ Entity ]): Status = {
+    bulkWrite( op )( entities )
+  }
+
+  override def cleanupGlobal(): Unit = ()
 }

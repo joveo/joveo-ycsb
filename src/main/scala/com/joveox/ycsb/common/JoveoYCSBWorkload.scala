@@ -21,7 +21,7 @@ class JoveoYCSBWorkload extends Workload with Logging{
 
   override def initThread(p: Properties, threadId: Int, totalThreads: Int): AnyRef = {
     super.initThread( p, threadId, totalThreads )
-    configManager.useCaseIterator( threadId, totalThreads )
+    configManager.useCaseGenerator( threadId, totalThreads )
   }
 
   override def doInsert( db: DB, threadState: Any ): Boolean = {
@@ -33,7 +33,7 @@ class JoveoYCSBWorkload extends Workload with Logging{
   }
 
   def runNext( db: DB, threadState: Any ): Boolean = {
-    val iterator = threadState.asInstanceOf[ UseCaseIterator ]
+    val iterator = threadState.asInstanceOf[ UseCaseGenerator ]
     if( iterator.hasNext ) {
       val op = iterator.next()
       val status = op.runNext( db, configManager.schema, iterator.threadId, iterator.idx )
@@ -47,3 +47,4 @@ class JoveoYCSBWorkload extends Workload with Logging{
   }
 
 }
+
