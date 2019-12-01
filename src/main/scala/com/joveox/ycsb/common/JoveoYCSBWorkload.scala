@@ -42,10 +42,9 @@ class JoveoYCSBWorkload extends Workload with Logging{
     val iterator = threadState.asInstanceOf[ UseCaseGenerator ]
     if( iterator.hasNext ) {
       val op = iterator.next()
-      val status = op.runNext( db, configManager.schema, iterator.threadId, iterator.idx )
-      status != null && status.isOk
+      op.runNext( db, configManager.schema, iterator.threadId, iterator.idx )
     }
-    else false
+    true
   }
 
   override def cleanup(): Unit = {
