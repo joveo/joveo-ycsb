@@ -1,17 +1,20 @@
 package com.joveox.ycsb.common
 
 import java.nio.file.{Files, Path, Paths}
-import java.util.Base64
+import java.util.{Base64, Scanner}
 
 import org.apache.logging.log4j.scala.Logging
 
+import scala.collection.AbstractIterator
 import scala.io.Source
 import scala.collection.JavaConverters._
 
 case class FieldLoader( id: String, path: Path, dir: Option[ Path ] = None )
 
 object SeedData{
+
   val delimiter = "\n##_##\n"
+
   def save( path: Path, values: Array[ String ] ): Unit = {
     val writer = Files.newBufferedWriter( path )
     values.zipWithIndex.foreach{
@@ -30,6 +33,19 @@ object SeedData{
       save( path.resolve(batchId+".out"), values )
     }
   }
+
+  def load( path: Path ): Array[ String ] = {
+    val scanner = new Scanner( Source.fromFile( path.toFile, 1024*1024 ).bufferedReader() )
+    scanner.useDelimiter( SeedData.delimiter )
+    val it = new AbstractIterator[ String ] {
+      override def hasNext = scanner.hasNext
+      override def next() = scanner.next()
+    }
+    val content = it.toArray
+    scanner.close()
+    content
+  }
+
 }
 
 case class SeedData(
@@ -45,10 +61,7 @@ case class SeedData(
         .flatMap( load )
         .toArray
     } else{
-      val source = Source.fromFile( path.toFile )
-      val content = source.mkString.split( SeedData.delimiter )
-      source.close()
-      content
+      SeedData.load( path )
     }
 
   }
@@ -74,9 +87,7 @@ object ContentGzippedExporter extends App{
   val home = Paths.get( System.getProperty("user.home") )
   val input = home.resolve( Paths.get( "content_gzipped", "content_gzipped.values") )
   println( s" Input found size ${ input.toFile.length()} bytes " )
-  val source = Source.fromFile( input.toFile, 1024 * 1024 )
-  val values = source.mkString.split( SeedData.delimiter )
-  source.close()
+  val values = SeedData.load( input )
   println( s" Input loaded. " )
   val decompressed = values.par.map{ content =>
     val bytes = Base64.getDecoder.decode( content )
