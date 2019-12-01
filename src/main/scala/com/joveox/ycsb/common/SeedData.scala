@@ -1,7 +1,7 @@
 package com.joveox.ycsb.common
 
-import java.nio.file.{Files, Path, Paths}
-import java.util.{Base64, Scanner}
+import java.nio.file.{Files, Path}
+import java.util.Scanner
 
 import org.apache.logging.log4j.scala.Logging
 
@@ -81,29 +81,4 @@ case class SeedData(
   }
 
 
-}
-
-object ContentGzippedExporter extends App{
-  val home = Paths.get( System.getProperty("user.home") )
-  val input = home.resolve( Paths.get( "content_gzipped", "content_gzipped.values") )
-  println( s" Input found size ${ input.toFile.length()} bytes " )
-  val values = SeedData.load( input )
-  println( s" Input loaded. " )
-  val decompressed = values.par.map{ content =>
-    val bytes = Base64.getDecoder.decode( content )
-    val json = GzipUtils.decompress( bytes )
-    val fields = ujson.read( json ).obj
-    val desc = fields("description").str
-    val descCompressed = GzipUtils.compress( desc )
-    val rest = ujson.Obj( fields.filterNot( _._1 == "description") ).render()
-    val restCompressed = GzipUtils.compress( rest )
-    ( Base64.getEncoder.encodeToString(descCompressed), Base64.getEncoder.encodeToString(restCompressed) )
-  }.toArray
-  println( s" Input processed. ${decompressed.length} entries found. " )
-  List( "job_desc_gzipped" -> decompressed.map( _._1 ), "job_content_gzipped" -> decompressed.map( _._2 ) ).par.foreach{
-    case (file, content ) =>
-      SeedData.saveAll(  home.resolve(file), content, 100000 )
-      println(s" Saved $file. Entries ${content.length}")
-  }
-  println( decompressed.take( 5 ).mkString("\n##_##\n") )
 }
