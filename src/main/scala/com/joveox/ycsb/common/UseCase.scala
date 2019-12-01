@@ -131,7 +131,7 @@ case class Create( name: String, load: Int, key: UseCaseField,  fields: List[ Us
     if( persistKeys ){
       outputPath match {
         case Some( path ) =>
-          val writeTo = path.resolve( key.name+s".$id.ycsb.out" )
+          val writeTo = path.resolve( key.name+s".$id.ycsb.out/" )
           SeedData.save( writeTo, keys.toArray )
         case None =>
       }
