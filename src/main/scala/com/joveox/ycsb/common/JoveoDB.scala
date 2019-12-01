@@ -4,9 +4,11 @@ import java.util
 
 import com.yahoo.ycsb.measurements.Measurements
 import com.yahoo.ycsb.{ByteIterator, DB, Status}
+import org.apache.logging.log4j.scala.Logging
 
 import scala.collection.JavaConverters._
 import scala.collection.mutable
+import scala.util.{Failure, Success, Try}
 
 trait DBExtension{
   type Entity = ( String, util.Map[ String, ByteIterator ] )
@@ -46,7 +48,7 @@ object JoveoDB {
   }
 }
 
-class JoveoDB extends DB {
+class JoveoDB extends DB with Logging{
 
   type Entity = ( String, util.Map[ String, ByteIterator ] )
 
@@ -103,6 +105,17 @@ class JoveoDB extends DB {
     }
   }
 
+  protected def runSafeWithLogging( fn: () => Status ): Status = {
+    Try {
+      fn()
+    } match {
+      case Failure( ex ) =>
+        logger.warn(" Error in JoveoDB ", ex )
+        Status.ERROR
+      case Success( status ) => status
+    }
+  }
+
   protected def exec[ Value ](
                                     key: String, value: Value,
                                     useCase: UseCase,
@@ -112,7 +125,7 @@ class JoveoDB extends DB {
     val intendedStartTime = measurements.getIntendedtartTimeNs
     val startTime = System.nanoTime()
     val status = if( useCase.batchSize == 1){
-      run( value )
+      runSafeWithLogging( () => run(value) )
     }
     else{
       val batchKey = inner.getKey( key )
@@ -123,7 +136,7 @@ class JoveoDB extends DB {
       batched.asInstanceOf[Batched[Value]].enqueue(batchKey, value) match {
         case Nil => Status.BATCHED_OK
         case values =>
-          batchRun( values )
+          runSafeWithLogging( () => batchRun( values ) )
       }
     }
     val endTime = System.nanoTime()
