@@ -1,6 +1,6 @@
 import sbt._
 
-name := "ycsb"
+name := "joveo_ycsb"
 
 version := "0.1"
 
@@ -10,7 +10,7 @@ maintainer := "rchaki@joveo.com"
 
 enablePlugins(JavaAppPackaging)
 
-mainClass in Compile := Some("com.joveox.ycsb.jobs.Main")
+mainClass in Compile := Some("com.joveox.ycsb.common.ContentGzippedExporter")
 
 resolvers += ("ImageJ Public Repository" at "http://maven.imagej.net/content/repositories/public/")
   .withAllowInsecureProtocol(true)
