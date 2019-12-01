@@ -8,6 +8,7 @@ import org.apache.logging.log4j.scala.Logging
 import scala.collection.AbstractIterator
 import scala.io.Source
 import scala.collection.JavaConverters._
+import scala.util.{Failure, Success, Try}
 
 case class FieldLoader( id: String, path: Path, dir: Option[ Path ] = None )
 
@@ -70,7 +71,15 @@ case class SeedData(
     logger.info("Loading seed data.")
     loaders.par.map{ loader =>
       val path = loader.dir.map( _.resolve( loader.path ) ).getOrElse( dir.resolve( loader.path ) )
-      val data = load( path )
+      val data = Try {
+        load(path)
+      } match {
+        case Failure( ex ) =>
+          logger.warn(s" Error loading seed data ${loader.id}", ex )
+          Array.empty[ String ]
+        case Success( values ) =>
+          values
+      }
       logger.info(s"     Loaded seed data ${loader.id} found ${data.length} entries,  from $path")
       loader.id -> data
     }.toMap.seq
