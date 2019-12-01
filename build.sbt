@@ -10,7 +10,7 @@ maintainer := "rchaki@joveo.com"
 
 enablePlugins(JavaAppPackaging)
 
-mainClass in Compile := Some("com.joveox.ycsb.common.ContentGzippedExporter")
+mainClass in Compile := Some("com.joveox.ycsb.jobs.Main")
 
 resolvers += ("ImageJ Public Repository" at "http://maven.imagej.net/content/repositories/public/")
   .withAllowInsecureProtocol(true)
