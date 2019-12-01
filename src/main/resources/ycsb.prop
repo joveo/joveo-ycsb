@@ -1,8 +1,8 @@
 workload=com.joveox.ycsb.common.JoveoYCSBWorkload
 db=com.joveox.ycsb.common.JoveoDB
 
-insertcount=10
-operationcount=100
+insertcount=1000
+operationcount=5000
 
 threadcount=2
 status.interval=5

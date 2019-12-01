@@ -76,28 +76,41 @@ case object TimestampGenerator extends RandomFieldGenerator {
 sealed trait SeedGenerator extends FieldGenerator{
   val id: String
   val random: Boolean
+  val rotation: Double
+
   private var data = Array.empty[ String ]
+
   private var currentIdx = -1
+  protected var maxIndex = 0
+
   def init( seed: SeedData ): Unit = {
     data = seed.getSeedData( id )
+    maxIndex = if( rotation <= 0.0 || rotation > 1.0 )
+      data.length
+    else
+      Math.min( (rotation * data.length).toInt, data.length )
   }
+
   protected def value( content: String ): JvByteIterator
+
+
+
   override def next(threadId: Int, count: Int): JvByteIterator = {
-    assert( ! data.isEmpty, s" Seed generator $id is empty. ")
-    val content = if( random ) data( Random.nextInt( data.length ) )
+    assert( maxIndex > 0 && data.nonEmpty, s" Seed generator $id is empty. maxIndex: $maxIndex, data: ${data.length}")
+    val content = if( random ) data( Random.nextInt( maxIndex ) )
     else{
-      currentIdx = ( currentIdx + 1 ) % data.length
+      currentIdx = ( currentIdx + 1 ) % maxIndex
       data( currentIdx )
     }
     value( content )
   }
 }
 
-case class SeedTextGenerator( id: String, random: Boolean = false ) extends SeedGenerator {
+case class SeedTextGenerator( id: String, random: Boolean = false, rotation: Double = 0.0 ) extends SeedGenerator {
   override val dataType = TEXT
   override protected def value(content: String): JVText = JVText( content )
 }
-case class SeedBlobGenerator( id: String, random: Boolean = false  ) extends SeedGenerator{
+case class SeedBlobGenerator( id: String, random: Boolean = false, rotation: Double = 0.0  ) extends SeedGenerator{
   override val dataType = BLOB
   override protected def value(content: String): JVBlob = JVBlob( Base64.getDecoder.decode( content ) )
 }
