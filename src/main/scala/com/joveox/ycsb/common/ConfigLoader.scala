@@ -20,10 +20,11 @@ class ConfigManager( config: Config, isLoadPhase: Boolean ) {
   val dbConf = source.at("db").loadOrThrow[ DBConf ]
   val seed: SeedData = source.at("seed").loadOrThrow[ SeedData ]
   val schema: Schema = source.at("schema").loadOrThrow[ Schema ]
-  private val load: Load = source.at("load").loadOrThrow[ Load ]
-  private val transactions: List[ UseCase ] = source.at("transactions").load[ List[ UseCase ] ].getOrElse( List.empty )
-
-  private val useCases = if( isLoadPhase ) List( load.asCreate ) else transactions
+  private val useCases = if( isLoadPhase ) {
+    List( source.at("load-mode").loadOrThrow[ Create ] )
+  } else{
+    source.at("transactions-mode").load[ List[ UseCase ] ].getOrElse( List.empty )
+  }
 
   val useCaseStore = UseCaseStore(
     useCases.filter( _.isInstanceOf[ Create] ).map( _.asInstanceOf[ Create ] ) ,
@@ -32,7 +33,7 @@ class ConfigManager( config: Config, isLoadPhase: Boolean ) {
   )
 
   def useCaseGenerator(threadId: Int, totalThreads: Int ): UseCaseGenerator = {
-    val useCasesCopy = useCases.map( _.copy() )
+    val useCasesCopy = useCases.map( _.clone() )
     useCasesCopy.foreach( _.init( seed ) )
     UseCaseGenerator( threadId, totalThreads, useCasesCopy )
   }

@@ -77,7 +77,8 @@ class JoveoDB extends DB {
 
   override def cleanup(): Unit = {
     super.cleanup()
-    inner.cleanupGlobal()
+    inner.cleanup()
+    JoveoDB.globalCleanup( inner )
   }
 
 

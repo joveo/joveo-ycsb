@@ -45,14 +45,18 @@ case object DoubleGenerator extends RandomFieldGenerator{
   val dataType = DOUBLE
   override def next(threadId: Int, count: Int): JVDouble = JVDouble( Random.nextDouble() )
 }
-case object TextGenerator extends RandomFieldGenerator{
+case class TextGenerator( minSize: Int = 0, maxSize: Int = 16 ) extends RandomFieldGenerator{
   val dataType = TEXT
-  override def next(threadId: Int, count: Int): JVText = JVText( Random.alphanumeric.take( 100 ).mkString("") )
+  override def next(threadId: Int, count: Int): JVText = {
+    val size = Math.max( 0, minSize ) + Random.nextInt( Math.max( 0, maxSize))
+    JVText( Random.alphanumeric.take( size ).mkString("") )
+  }
 }
-case object BlobGenerator extends RandomFieldGenerator{
+case class BlobGenerator( minSize: Int = 0, maxSize: Int = 16 ) extends RandomFieldGenerator{
   val dataType = BLOB
   override def next(threadId: Int, count: Int): JVBlob = {
-    val bytes = new Array[ Byte ]( 100 )
+    val size = Math.max( 0, minSize ) + Random.nextInt( Math.max( 0, maxSize))
+    val bytes = new Array[ Byte ]( size )
     Random.nextBytes( bytes )
     JVBlob(bytes)
   }

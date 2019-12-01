@@ -27,7 +27,7 @@ class MockDB extends DBExtension with  Logging {
 
   override def init( config: Map[ String, String ], schema: Schema, global: Any ): Unit = {
     val conf = config
-    val root = Paths.get( conf( "output ") )
+    val root = Paths.get( conf( "output") )
     if( ! root.toFile.exists() )
       Files.createDirectories( root )
     val dbPath = root.resolve( id + ".txt"  )

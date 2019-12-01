@@ -6,6 +6,8 @@ import java.util.Properties
 import com.yahoo.ycsb.{DB, Workload}
 import org.apache.logging.log4j.scala.Logging
 
+import scala.collection.mutable
+
 
 class JoveoYCSBWorkload extends Workload with Logging{
 
@@ -19,9 +21,13 @@ class JoveoYCSBWorkload extends Workload with Logging{
     configManager = ConfigManager.init( confPath, isLoad )
   }
 
+  private val generators = mutable.HashMap.empty[ Int,  UseCaseGenerator ]
+
   override def initThread(p: Properties, threadId: Int, totalThreads: Int): AnyRef = {
     super.initThread( p, threadId, totalThreads )
-    configManager.useCaseGenerator( threadId, totalThreads )
+    val generator = configManager.useCaseGenerator( threadId, totalThreads )
+    generators.update( threadId, generator )
+    generator
   }
 
   override def doInsert( db: DB, threadState: Any ): Boolean = {
@@ -44,6 +50,7 @@ class JoveoYCSBWorkload extends Workload with Logging{
 
   override def cleanup(): Unit = {
     super.cleanup()
+    generators.values.foreach( _.cleanup() )
   }
 
 }

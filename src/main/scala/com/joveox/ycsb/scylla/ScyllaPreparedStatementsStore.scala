@@ -57,6 +57,7 @@ class ScyllaPreparedStatementsStore(schema: Schema, useCaseStore: UseCaseStore, 
         case JVBlob( v ) => ByteBuffer.wrap( v )
         case JVDate( v ) => v
         case JVTimestamp( v ) => v
+          // TODO: Implement LIST and MAP
       }
     }
     val fields = entity._2.keySet().asScala.toList.sorted.map( f => extract( entity._2.get( f ) ) ) ++ List( entity._1 )

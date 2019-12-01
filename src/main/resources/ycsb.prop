@@ -1,13 +1,16 @@
-workload=com.joveox.ycsb.scylla.ScyllaWorkload
-db=com.joveox.ycsb.scylla.ScyllaDB
+workload=com.joveox.ycsb.common.JoveoYCSBWorkload
+db=com.joveox.ycsb.common.JoveoDB
 
-insertcount=10000
-operationcount=50000
+insertcount=10
+operationcount=100
 
 threadcount=2
 status.interval=5
 dotransactions=true
 status=true
 reportlatencyforeacherror=true
+hdrhistogram.percentiles=50,75,90,95,99
+hdrhistogram.fileoutput=true
+hdrhistogram.output.path=/home/rchaki/data/ycsb/metrics/
 
 joveo.ycsb.conf=/media/rchaki/WORK/workspace/joveo-ycsb/src/main/resources/joveo.ycsb.conf

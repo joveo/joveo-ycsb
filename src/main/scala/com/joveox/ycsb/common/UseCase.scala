@@ -1,14 +1,15 @@
 package com.joveox.ycsb.common
 
-import java.nio.file.Path
+import java.nio.file.{Files, Path}
 import java.util
 
 import com.yahoo.ycsb.{ByteIterator, DB, Status}
 import com.yahoo.ycsb.generator.DiscreteGenerator
 import enumeratum._
 
-import scala.collection.AbstractIterator
+import scala.collection.{AbstractIterator, mutable}
 import scala.collection.JavaConverters._
+import scala.util.Random
 
 sealed trait DBOperation extends EnumEntry
 object DBOperation extends Enum[DBOperation] {
@@ -20,7 +21,19 @@ object DBOperation extends Enum[DBOperation] {
   case object SCAN     extends DBOperation
 }
 
-case class UseCaseField( name: String, generator: FieldGenerator, threadUnique: Boolean = false )
+case class UseCaseField( name: String, generator: FieldGenerator, threadUnique: Boolean = false ){
+  def next( threadId: Int, idx: Int ): JvByteIterator = {
+    val value = generator.next( threadId, idx )
+    val transformed = if( threadUnique ){
+      value match {
+        case JVText(underlying) => JVText( s"$threadId--$idx--" + underlying )
+        case JVBlob(underlying) => JVBlob( s"$threadId--$idx--".getBytes ++ underlying )
+        case _ => value
+      }
+    } else value
+    transformed
+  }
+}
 
 sealed trait UseCase {
   val dbOperation: DBOperation
@@ -28,22 +41,25 @@ sealed trait UseCase {
   val load: Int
   val batchSize: Int
   val key: UseCaseField
+
   def init( seed: SeedData ): Unit
+
   def runNext( db: DB, schema: Schema, threadId: Int, idx: Int ): Status
-  def nextKey( threadId: Int, idx: Int ): String = key.generator.next( threadId, idx ).toString
+
+  def nextKey( threadId: Int, idx: Int ): String = key.next( threadId, idx ).toString
+
   val nonKeyFields: Set[ String ]
 
   def cleanup() : Unit  = ()
 
-  def copy( ) : UseCase = {
+  override def clone( ) : UseCase = {
     this match {
       case v : Read => v.copy()
       case write: Write =>
         write match {
           case v: Create => v.copy()
           case v: Update=> v.copy()
-          case v: Load => v.copy()
-        }
+       }
     }
   }
 }
@@ -55,8 +71,6 @@ case class Read( name: String, load: Int, key: UseCaseField, nonKeyFields: Set[ 
   def init( seed: SeedData ): Unit = {
     key.generator.init( seed )
   }
-
-
 
   override def runNext(db: DB, schema: Schema, threadId: Int, idx: Int): Status = {
     val keyValue = nextKey( threadId, idx )
@@ -89,11 +103,41 @@ sealed trait Write extends UseCase {
 
 }
 
-case class Create( name: String, load: Int, key: UseCaseField,  fields: List[ UseCaseField ], batchSize: Int = 1 ) extends Write {
+case class Create( name: String, load: Int, key: UseCaseField,  fields: List[ UseCaseField ], batchSize: Int = 1, persistKeys: Boolean, outputPath: Option[ Path ]  ) extends Write {
 
   val dbOperation = DBOperation.CREATE
 
-  override def run(db: DB, table: String, keyValue: String, values: util.Map[String, ByteIterator]): Status = db.insert( table, keyValue, values )
+  outputPath match {
+    case Some( path ) =>
+      if( ! path.toFile.exists() )
+        Files.createDirectories( path )
+      assert( path.toFile.isDirectory, " Create use case needs the output path to be a directory " )
+    case None =>
+  }
+
+  private val id = Random.nextInt( 100000 ).toString
+
+  private val keys = mutable.HashSet.empty[ String ]
+
+  override def run(db: DB, table: String, keyValue: String, values: util.Map[String, ByteIterator]): Status = {
+    val status = db.insert( table, keyValue, values )
+    if( status.isOk )
+      keys += keyValue
+    status
+  }
+
+  override def cleanup(): Unit = {
+    super.cleanup()
+    if( persistKeys ){
+      outputPath match {
+        case Some( path ) =>
+          val writeTo = path.resolve( key.name+s".$id.ycsb.out" )
+          SeedData.save( writeTo, keys.toArray )
+        case None =>
+      }
+    }
+  }
+
 
 }
 case class Update( name: String, load: Int, key: UseCaseField,  fields: List[ UseCaseField ], batchSize: Int = 1 ) extends Write {
@@ -101,22 +145,6 @@ case class Update( name: String, load: Int, key: UseCaseField,  fields: List[ Us
   val dbOperation = DBOperation.READ
 
   override def run(db: DB, table: String, keyValue: String, values: util.Map[String, ByteIterator]): Status = db.update( table, keyValue, values )
-
-}
-
-case class Load( name: String, load: Int, key: UseCaseField,  fields: List[ UseCaseField ], batchSize: Int = 1, persistKeys: Boolean, outputPath: Option[ Path ] )
-  extends Write {
-  val dbOperation = DBOperation.CREATE
-
-  override def run(db: DB, table: String, keyValue: String, values: util.Map[String, ByteIterator]): Status = {
-    db.insert( table, keyValue, values )
-  }
-
-  override def cleanup(): Unit = {
-    super.cleanup()
-  }
-
-  def asCreate: Create = Create( name, load, key, fields )
 
 }
 
@@ -160,5 +188,9 @@ case class UseCaseGenerator(threadId: Int, totalThreads: Int, useCases: List[ Us
   override def next(): UseCase = {
     currentIdx = currentIdx + 1
     useCaseByName( generator.nextValue() )
+  }
+
+  def cleanup(): Unit = {
+    useCases.foreach( _.cleanup() )
   }
 }
