@@ -51,8 +51,6 @@ class ScyllaDB extends DBExtension with Logging {
     } match {
       case Success( rs ) =>
         val rows = rs.all().asScala
-        if( rows.size < expected )
-          logger.warn(s" Scylla expected $expected number of elems is less than returned ${rows.size} ")
         rows.zipWithIndex.foreach{
           case ( row, i) =>
             val columns = row.getColumnDefinitions
