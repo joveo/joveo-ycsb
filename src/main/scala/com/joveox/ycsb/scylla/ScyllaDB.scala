@@ -6,7 +6,7 @@ import java.util.UUID
 import com.datastax.oss.driver.api.core.CqlSession
 import com.datastax.oss.driver.api.core.`type`.codec.TypeCodecs
 import com.datastax.oss.driver.api.core.cql.{BatchStatement, DefaultBatchType, ResultSet}
-import com.joveox.ycsb.common.{Create, DBExtension, DBOperation, JVBlob, Read, Schema, Update, UseCase, UseCaseStore}
+import com.joveox.ycsb.common.{Create, DBExtension, DBOperation, JVBlob, Read, Schema, SchemaStore, Update, UseCase, UseCaseStore}
 import com.yahoo.ycsb.{ByteIterator, Status}
 import org.apache.logging.log4j.scala.Logging
 
@@ -19,9 +19,9 @@ class ScyllaDB extends DBExtension with Logging {
   protected var session: CqlSession = _
   protected var preparedStatementManager: ScyllaPreparedStatementsStore = _
 
-  override def init( config: Map[ String, String ], schema: Schema, global: Any ): Unit = {
-    keyspace = schema.db
-    session = ScyllaSession build(config, true)
+  override def init( config: Map[ String, String ],schemaStore: SchemaStore, global: Any ): Unit = {
+    keyspace = schemaStore.db
+    session = ScyllaSession build(config, schemaStore.db, true)
     preparedStatementManager = global.asInstanceOf[ ScyllaPreparedStatementsStore ]
   }
 
@@ -150,10 +150,13 @@ class ScyllaDB extends DBExtension with Logging {
     }
   }
 
-  override def initGlobal(config: Map[String, String], schema: Schema, useCaseStore: UseCaseStore ): ScyllaPreparedStatementsStore = {
-    val cql = ScyllaSession.build( config, useKeySpace = false )
-    ScyllaSession.setup( schema, cql )
-    new ScyllaPreparedStatementsStore( schema, useCaseStore, cql )}
+  override def initGlobal(config: Map[String, String], schemaStore: SchemaStore, useCaseStore: UseCaseStore ): ScyllaPreparedStatementsStore = {
+    val cql = ScyllaSession.build( config, schemaStore.db, useKeySpace = false )
+    schemaStore.schemas.foreach{ schema =>
+      ScyllaSession.setup( schemaStore.db, schema, cql )
+    }
+    new ScyllaPreparedStatementsStore( schemaStore, useCaseStore, cql )
+  }
 
   override def cleanupGlobal(): Unit = {
     preparedStatementManager.close()

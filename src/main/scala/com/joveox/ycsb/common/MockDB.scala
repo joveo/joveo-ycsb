@@ -25,7 +25,7 @@ class MockDB extends DBExtension with  Logging {
   }
 
 
-  override def init( config: Map[ String, String ], schema: Schema, global: Any ): Unit = {
+  override def init( config: Map[ String, String ], schemaStore: SchemaStore, global: Any ): Unit = {
     val conf = config
     val root = Paths.get( conf( "output") )
     if( ! root.toFile.exists() )
@@ -66,7 +66,7 @@ class MockDB extends DBExtension with  Logging {
     Status.OK
   }
 
-  override def initGlobal(config: Map[String, String], schema: Schema, useCaseStore: UseCaseStore): Any = ()
+  override def initGlobal(config: Map[String, String], schemaStore: SchemaStore, useCaseStore: UseCaseStore): Any = ()
 
   override def read(op: Read)(key: String): Status = {
     log( s"op=READ, keys=$key, fields=${op.nonKeyFields.mkString("::")},null\n")

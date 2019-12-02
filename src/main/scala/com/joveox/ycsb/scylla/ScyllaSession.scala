@@ -37,9 +37,9 @@ object ScyllaSession extends Logging {
     }
   }
 
-  def build( config: Map[ String, String ], useKeySpace: Boolean ): CqlSession = {
+  def build( config: Map[ String, String ], db: String, useKeySpace: Boolean ): CqlSession = {
     val conf = ScyllaConf(config)
-    val keyspace = ConfigManager.get.schema.db
+    val keyspace = db
     var builder = CqlSession.builder()
     conf.hosts match {
       case None =>
@@ -106,28 +106,28 @@ object ScyllaSession extends Logging {
     s" ${field.name} $scyllaType ${ if( isPrimaryKey) "PRIMARY KEY" else ""}"
   }
 
-  protected def tableDDL( schema: Schema  ): String = {
+  protected def tableDDL( db: String, schema: Schema  ): String = {
     val key = tableDDL( schema.key, true )
     val innerFields = schema.fields.map{ field =>
       tableDDL( field )
     }
 
     s"""
-       |CREATE TABLE IF NOT EXISTS ${schema.db}.${schema.table} (
+       |CREATE TABLE IF NOT EXISTS $db.${schema.table} (
        |${( key :: innerFields ).mkString(",\n")}
        |) WITH compaction={'class':'LeveledCompactionStrategy'} AND compression = {'sstable_compression': 'LZ4Compressor'}
       """.stripMargin
   }
 
-  def setup( schema: Schema, session: CqlSession ): Unit = {
+  def setup( db: String, schema: Schema, session: CqlSession ): Unit = {
     session.execute(
-      createKeyspace( schema.db )
+      createKeyspace( db )
         .ifNotExists()
         .withSimpleStrategy( 2 )
         .build()
     ).wasApplied()
 
-    val createTable = tableDDL( schema )
+    val createTable = tableDDL( db, schema )
     session.execute( createTable ).wasApplied()
   }
 

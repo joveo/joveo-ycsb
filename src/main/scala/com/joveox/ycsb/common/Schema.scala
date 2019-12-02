@@ -49,10 +49,16 @@ case class MAPField(override val name: String) extends Field{
 
 
 case class Schema(
-                   db: String,
                    table: String,
                    key: TEXTField,
                    fields: List[ Field ] = List.empty
                  ) {
   val allFields: List[Field] = key :: fields
+}
+
+case class SchemaStore( db: String, schemas: List[ Schema] ){
+
+  private val byName = schemas.groupBy( _.table ).map( kv => kv._1 -> kv._2.head )
+
+  def get( name: String ): Schema = byName( name )
 }

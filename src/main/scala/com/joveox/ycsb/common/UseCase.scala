@@ -40,6 +40,7 @@ sealed trait UseCase {
   val name: String
   val load: Int
   val batchSize: Int
+  val schema: String
   val key: UseCaseField
 
   def init( seed: SeedData ): Unit
@@ -51,6 +52,19 @@ sealed trait UseCase {
   val nonKeyFields: Set[ String ]
 
   def cleanup() : Unit  = ()
+
+  def validate( schemaStore: SchemaStore, seedData: SeedData ): List[ String ] = {
+    val schemaExists = schemaStore.schemas.exists( _.table == schema )
+    val keyFieldValid = if( schemaExists ) schemaStore.get( schema ).key.name == key.name else true
+    val fieldsInSchema = if( schemaExists )  schemaStore.get( schema ).fields.map(_.name).toSet else Set.empty[ String ]
+    val fieldsNotFound =  if( schemaExists ) nonKeyFields diff fieldsInSchema else Set.empty[ String ]
+    List(
+      (  if( ! schemaExists ) Some( s" Undefined  schema $schema. " ) else None ),
+      (  if( ! keyFieldValid ) Some( s" Key field ${key.name}  does not match key name in schema $schema." ) else None ),
+      (  if( fieldsNotFound.nonEmpty ) Some( s" Undefined  fields ${fieldsNotFound.mkString(",")} in $schema." ) else None ),
+    ).flatten
+
+  }
 
   override def clone( ) : UseCase = {
     this match {
@@ -64,7 +78,7 @@ sealed trait UseCase {
   }
 }
 
-case class Read( name: String, load: Int, key: UseCaseField, nonKeyFields: Set[ String ], batchSize: Int = 1 ) extends UseCase {
+case class Read( name: String, load: Int, key: UseCaseField, nonKeyFields: Set[ String ], schema: String, batchSize: Int = 1 ) extends UseCase {
 
   val dbOperation = DBOperation.READ
 
@@ -101,9 +115,23 @@ sealed trait Write extends UseCase {
 
   override val nonKeyFields: Set[String] = fields.map(_.name).toSet
 
+  override def validate(schemaStore: SchemaStore, seedData: SeedData): List[String] = {
+    val errors = super.validate(schemaStore, seedData)
+    val seedDataAvailableFor = seedData.loaders.map( _.id ).toSet
+    val seedDataNotFound = fields.map( _.generator ).collect{
+      case v: SeedGenerator => v.id
+    }.toSet diff seedDataAvailableFor
+
+    val seedDataErrors = if( seedDataNotFound.nonEmpty )
+      List( s" Undefined  fields ${seedDataNotFound.mkString(",")} in $schema." )
+    else
+      List.empty[ String ]
+    seedDataErrors ++ errors
+  }
+
 }
 
-case class Create( name: String, load: Int, key: UseCaseField,  fields: List[ UseCaseField ], batchSize: Int = 1, persistKeys: Boolean, outputPath: Option[ Path ]  ) extends Write {
+case class Create( name: String, load: Int, key: UseCaseField,  fields: List[ UseCaseField ], schema: String, batchSize: Int = 1, persistKeys: Boolean, outputPath: Option[ Path ]  ) extends Write {
 
   val dbOperation = DBOperation.CREATE
 
@@ -140,7 +168,7 @@ case class Create( name: String, load: Int, key: UseCaseField,  fields: List[ Us
 
 
 }
-case class Update( name: String, load: Int, key: UseCaseField,  fields: List[ UseCaseField ], batchSize: Int = 1 ) extends Write {
+case class Update( name: String, load: Int, key: UseCaseField,  fields: List[ UseCaseField ], schema: String, batchSize: Int = 1 ) extends Write {
 
   val dbOperation = DBOperation.READ
 

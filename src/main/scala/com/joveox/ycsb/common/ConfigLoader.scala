@@ -3,27 +3,35 @@ package com.joveox.ycsb.common
 import java.nio.file.{Path, Paths}
 
 import com.typesafe.config.Config
+import org.apache.logging.log4j.scala.Logging
 import pureconfig.generic.auto._
 import pureconfig._
 
 
 case class MockDBConf( console: Boolean = true, output: Path = Paths.get("/","tmp", "joveo.ycsb", "mock.db") )
-case class DBConf( mockDBConf: MockDBConf, dbClass: String, config: Map[ String, String ] )
+case class DBConf( mockDBConf: MockDBConf, dbName: String, dbClass: String, config: Map[ String, String ] )
 
 
 
 
-class ConfigManager( config: Config, isLoadPhase: Boolean ) {
+class ConfigManager( config: Config, isLoadPhase: Boolean ) extends Logging {
 
   private val source = ConfigSource.fromConfig( config )
 
   val dbConf = source.at("db").loadOrThrow[ DBConf ]
   val seed: SeedData = source.at("seed").loadOrThrow[ SeedData ]
-  val schema: Schema = source.at("schema").loadOrThrow[ Schema ]
+  private val schemas: List[ Schema ] = source.at("schema").loadOrThrow[ List[ Schema ] ]
+  val schemaStore = SchemaStore( dbConf.dbName, schemas )
   private val useCases = if( isLoadPhase ) {
-    List( source.at("load-mode").loadOrThrow[ Create ] )
+    source.at("load-mode").loadOrThrow[ List[ Create]  ]
   } else{
     source.at("transactions-mode").load[ List[ UseCase ] ].getOrElse( List.empty )
+  }
+
+  val errors = useCases.map( u => u.name -> u.validate( schemaStore, seed ) ).filter(_._2.nonEmpty)
+  if( errors.nonEmpty ){
+    logger.error( errors.map(e => s" Errors in use case ${ e._1 }. Errors: \n ${e._2.mkString("\n") } ").mkString("\n\n") )
+    System.exit( 10 )
   }
 
   val useCaseStore = UseCaseStore(

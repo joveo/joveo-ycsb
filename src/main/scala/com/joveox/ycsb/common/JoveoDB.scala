@@ -12,8 +12,8 @@ import scala.util.{Failure, Success, Try}
 
 trait DBExtension{
   type Entity = ( String, util.Map[ String, ByteIterator ] )
-  def init( config: Map[ String, String ], schema: Schema, global: Any ): Unit
-  def initGlobal( config: Map[ String, String ], schema: Schema, useCaseStore: UseCaseStore ): Any
+  def init( config: Map[ String, String ], schemaStore: SchemaStore, global: Any ): Unit
+  def initGlobal( config: Map[ String, String ], schemaStore: SchemaStore, useCaseStore: UseCaseStore ): Any
   def getKey( key: String ): String = ""
   def read( op: Read )( key: String ): Status
   def bulkRead( op: Read )( keys: List[ String ] ): Status
@@ -31,10 +31,10 @@ object JoveoDB {
   private var isGlobalInitDOne = false
   private var cached: Any = _
   private var isCleanupInitDone = false
-  def globalInit( db: DBExtension, config: Map[ String, String ], schema: Schema, useCaseStore: UseCaseStore  ): Any = {
+  def globalInit( db: DBExtension, config: Map[ String, String ], schemaStore: SchemaStore, useCaseStore: UseCaseStore  ): Any = {
     synchronized{
       if( !isGlobalInitDOne )
-        cached = db.initGlobal( config, schema, useCaseStore )
+        cached = db.initGlobal( config, schemaStore, useCaseStore )
       isGlobalInitDOne = true
     }
     cached
@@ -64,11 +64,11 @@ class JoveoDB extends DB with Logging{
   override def init(): Unit = {
     super.init()
     val conf = ConfigManager.get.dbConf
-    val schema = ConfigManager.get.schema
+    val schemaStore = ConfigManager.get.schemaStore
     useCaseStore = ConfigManager.get.useCaseStore
     inner = getClass.getClassLoader.loadClass( conf.dbClass ).getDeclaredConstructor().newInstance().asInstanceOf[ DBExtension ]
-    val global = JoveoDB.globalInit( inner, conf.config, schema, useCaseStore )
-    inner.init( conf.config, schema, global )
+    val global = JoveoDB.globalInit( inner, conf.config, schemaStore, useCaseStore )
+    inner.init( conf.config, schemaStore, global )
     readQueues = useCaseStore.reads.map{ useCase =>
       useCase -> new Batched[ String ]( useCase.batchSize )
     }.toMap

@@ -14,7 +14,7 @@ import com.yahoo.ycsb.ByteIterator
 import scala.collection.JavaConverters._
 
 
-class ScyllaPreparedStatementsStore(schema: Schema, useCaseStore: UseCaseStore, session: CqlSession ){
+class ScyllaPreparedStatementsStore(schemaStore: SchemaStore, useCaseStore: UseCaseStore, session: CqlSession ){
 
   private val reads = buildPrepare( useCaseStore.reads, prepareRead )
   private val updates = buildPrepare( useCaseStore.updates, prepareUpdate )
@@ -25,7 +25,7 @@ class ScyllaPreparedStatementsStore(schema: Schema, useCaseStore: UseCaseStore, 
       useCase -> ScyllaSession.retry(
         3,
         1000, 2000,
-        () => session.prepare( fn( schema.db, schema.table, useCase.key.name, useCase.nonKeyFields.toList.sorted ) )
+        () => session.prepare( fn( schemaStore.db, useCase.schema, useCase.key.name, useCase.nonKeyFields.toList.sorted ) )
       )
     }.toMap
   }
